@@ -1,6 +1,6 @@
 # Deployment — on-robot, remote, and edge inference
 
-Trelis stops at "train on a remote GPU." Φ goes further: **run the policy where the robot is**, efficiently.
+Training a policy is only half the job. Deployment is about **running the policy where the robot is**, efficiently and reliably.
 
 > Reference: [inference](https://huggingface.co/docs/lerobot/en/inference) · [async inference](https://huggingface.co/docs/lerobot/en/async) · [Real-Time Chunking](https://huggingface.co/docs/lerobot/en/rtc)
 
