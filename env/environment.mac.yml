@@ -1,0 +1,19 @@
+# Φ — Apple-Silicon "cockpit" env (the MacBook that connects to the SO-101).
+# Use this to calibrate, teleoperate, record, replay, and run small policies (MPS).
+# Heavy training should be OFFLOADED (CUDA box / Explorer HPC / HF Jobs) — a fanless Mac throttles.
+#
+#   conda env create -f env/environment.mac.yml   (or: make setup)
+#   conda activate phi
+#
+name: phi
+channels: [conda-forge]
+dependencies:
+  - python=3.12
+  - ffmpeg            # TorchCodec video decode for LeRobotDataset
+  - uv
+  - pip
+  - pip:
+      # LeRobot core + robot workflows + Feetech motors (SO-100/101).
+      # See docs/robots/so-arm101/02-setup.md for the exact install and why these extras.
+      - "lerobot[feetech,core_scripts]"
+      # add "lerobot[smolvla]" / "lerobot[pi]" / "lerobot[diffusion]" per policy when needed

@@ -1,0 +1,19 @@
+# Φ — Linux/CUDA training box (or Northeastern Explorer HPC GPU node).
+# This is where lerobot-train actually runs. Cockpit stays on the Mac.
+#
+#   conda env create -f env/environment.cuda.yml     (or: make setup ENV=cuda)
+#   conda activate phi-cuda
+#
+name: phi-cuda
+channels: [conda-forge]
+dependencies:
+  - python=3.12
+  - ffmpeg
+  - pip
+  - pip:
+      # Install a CUDA-matched PyTorch first per your driver, then:
+      - "lerobot[training,feetech,core_scripts]"
+      # policy extras as needed:
+      - "lerobot[smolvla]"
+      # - "lerobot[pi]"          # pi0 / pi0.5 / pi0-FAST
+      # - "lerobot[diffusion]"   # Diffusion Policy

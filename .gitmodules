@@ -1,0 +1,4 @@
+[submodule "external/lerobot"]
+	path = external/lerobot
+	url = https://github.com/huggingface/lerobot.git
+	branch = main

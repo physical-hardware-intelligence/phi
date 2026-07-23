@@ -1,0 +1,33 @@
+# macOS / exFAT AppleDouble noise (Crucial_X9 is exFAT — these regenerate, never commit them)
+._*
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ML artifacts — weights & datasets live on the Hugging Face Hub, NOT in git
+outputs/
+checkpoints/
+wandb/
+*.ckpt
+*.pt
+*.safetensors
+data/
+*.mp4
+*.parquet
+.cache/
+
+# Docs build
+site/
+
+# Secrets / local env
+.env
+*.local

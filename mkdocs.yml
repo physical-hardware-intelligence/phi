@@ -1,0 +1,24 @@
+site_name: Φ — Physical Hardware Intelligence
+site_description: Open robot-learning pipeline for the Northeastern SV robotics SIG.
+theme:
+  name: material
+  features: [navigation.sections, content.code.copy, toc.integrate]
+
+nav:
+  - Home: 00-overview.md
+  - Robots:
+      - SO-ARM101:
+          - Hardware & build: robots/so-arm101/01-hardware.md
+          - Setup & bring-up: robots/so-arm101/02-setup.md
+          - Teleop & data: robots/so-arm101/03-teleop-and-data.md
+          - Troubleshooting: robots/so-arm101/troubleshooting.md
+  - Training (policy zoo): training/README.md
+  - Evaluation: evaluation/README.md
+  - Deployment: deployment/README.md
+  - Theory: theory/README.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - tables
+  - toc: { permalink: true }

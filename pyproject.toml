@@ -1,0 +1,39 @@
+[project]
+name = "phi"
+version = "0.0.1"
+description = "Physical Hardware Intelligence — Northeastern SV robotics SIG: an open, systematic robot-learning pipeline built on LeRobot."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+
+# Heavy deps (lerobot, torch) are installed via env/ files or the lerobot submodule,
+# not pinned here, to keep this a thin layer. See env/environment.*.yml.
+dependencies = [
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6", "mypy>=1.11", "pytest>=8.0"]
+
+[project.scripts]
+phi = "phi.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/phi"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
