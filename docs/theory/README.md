@@ -2,6 +2,31 @@
 
 The repo teaches you to *run* policies; this section is *why* they work, so members build intuition, not just muscle memory. Read the one for whatever you're training.
 
+## The policy family tree (pick your baseline)
+
+Every imitation policy answers one question: **how do you model `P(action | obs)` without averaging away the valid modes** (multimodality), and do you predict one step or a **chunk**? Cheapest → most expressive:
+
+| Family | Method(s) | Idea | Multimodal? |
+|---|---|---|---|
+| regress | BC-MLP / BC-ConvMLP | `obs → action`, L2 loss | ✗ averages modes |
+| mixture | LSTM-GMM (BC-RNN) | RNN + Gaussian-mixture head | a few modes |
+| energy | IBC | learn `E(obs,act)`, search for the min | ✓ but unstable |
+| tokenize | BeT → VQ-BeT | discretize actions (k-means → residual VQ-VAE) + transformer | ✓ (VQ-BeT ~5× faster than diffusion) |
+| latent chunk | ACT | CVAE emits an action chunk | ✓ |
+| generative | Diffusion / flow | denoise noise → action chunk | ✓ strongest, slower |
+| retrieval | VINN | frozen visual features + k-NN over demos, no action net | ✓ |
+| scale | RT-1 / VLAs | tokenized multi-task transformer | ✓ huge |
+
+**Action chunking (ACT's idea) is the trick almost every modern method adopts.** ACT · Diffusion · VLAs are detailed below; the rest are the classic baselines you meet in results tables.
+
+**Who benchmarks against whom** — so our [leaderboard](../evaluation/README.md) stays comparable to the papers:
+- Diffusion Policy → LSTM-GMM, IBC, BeT
+- ACT → BC-ConvMLP, BeT, RT-1, VINN
+- VQ-BeT → BC, BeT, Diffusion Policy
+- Patch Policy → ACT, VQ-BeT, Diffusion Policy, OpenVLA-OFT
+
+Baselines not linked below: [VQ-BeT](https://arxiv.org/abs/2403.03181) · [IBC](https://arxiv.org/abs/2109.00137) · [BeT](https://arxiv.org/abs/2206.11251) · [VINN](https://arxiv.org/abs/2112.01511) · [RT-1](https://arxiv.org/abs/2212.06817).
+
 ## Imitation learning & action chunking (ACT)
 Copy expert demos, but predict a **chunk** of future actions at once to avoid compounding error.
 - ACT paper: https://arxiv.org/abs/2304.13705
