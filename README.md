@@ -44,6 +44,24 @@ make help                                      # see every one-command entrypoin
 ```
 Then read [`docs/00-overview.md`](docs/00-overview.md) and follow the **member ladder** below.
 
+## From arm to trained policy (the L0 → L2 run)
+
+The end-to-end thread once you have the SO-101 in hand. Each step links to the doc with the exact commands. **Record on the Mac, train on a GPU box.**
+
+1. **Install** the env — the Quickstart above, or [`02-setup`](docs/robots/so-arm101/02-setup.md).
+2. **Find USB ports** (`lerobot-find-port`, once per arm) → [`02-setup`](docs/robots/so-arm101/02-setup.md).
+3. **Set motor IDs**, one servo at a time → [`02-setup`](docs/robots/so-arm101/02-setup.md).
+4. **Calibrate** follower + leader — reuse the same `--id` everywhere, **commit the file** → [`02-setup`](docs/robots/so-arm101/02-setup.md).
+5. **Teleop check** — move the leader, the follower mirrors → **you're L1** → [`02-setup`](docs/robots/so-arm101/02-setup.md).
+6. **Add cameras** — wrist + one fixed scene cam → [`02-setup`](docs/robots/so-arm101/02-setup.md).
+7. **Record ≥50 demos**, varying object position + lighting → [`03-teleop-and-data`](docs/robots/so-arm101/03-teleop-and-data.md).
+8. **QA + replay** the dataset — no dropped frames, no camera swap → [`03-teleop-and-data`](docs/robots/so-arm101/03-teleop-and-data.md).
+9. **Train ACT** on the GPU box (`--policy.type=act`) → **you're L2** → [`training`](docs/training/README.md).
+10. **Roll out + score** on the robot (`lerobot-rollout`) → [`evaluation`](docs/evaluation/README.md).
+11. **Log it** — commit the config + seed, write the [`experiment`](experiments/), add a [`model card`](models/).
+
+Stuck at any step → [`troubleshooting`](docs/robots/so-arm101/troubleshooting.md).
+
 ## The member ladder (how you level up)
 
 | Level | You can… | Start here |
