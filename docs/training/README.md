@@ -15,6 +15,9 @@ Training is **shared across robots**. You pick a policy with `--policy.type=...`
 
 (LeRobot ships many more — GR00T, X-VLA, etc. — see its policy docs. We add them as members level up.)
 
+**Research candidates (not yet wired):**
+- **Patch Policy** — frozen-ViT *patch* features (keep the dense grid, don't pool) + a tiny block-causal transformer. Reportedly beats a 7.6B VLA by 18% at ~0.7% of the params, trains in ~6.5 GPU-hours on one GPU. A strong fit for our single-GPU regime. Planned head-to-head vs ACT: [`experiments/2026-07-24_patch-policy-so101.md`](../../experiments/2026-07-24_patch-policy-so101.md). Paper: [arXiv 2607.18236](https://arxiv.org/abs/2607.18236).
+
 ## Train ACT (the baseline every task gets first)
 ```bash
 lerobot-train \
