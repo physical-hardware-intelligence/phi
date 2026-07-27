@@ -26,6 +26,9 @@ lerobot-find-port
 Unplug the arm's USB when prompted, press Enter, and it prints the port (mac: `/dev/tty.usbmodem…`, Linux: `/dev/ttyACM0`). Run once per arm (leader + follower). On Linux you may need `sudo chmod 666 /dev/ttyACM0`.
 
 ## 2. Set motor IDs
+> **Assembled kits (e.g. Seeed SO-ARM101 Kit Pro, Assembled): skip this step and go straight to [§3 Calibrate](#3-calibrate).** The servos ship with their IDs already set, so the Seeed wiki routes pre-assembled arms directly to calibration. You only need this step for a motors-only / DIY kit, or if you ever replace a motor.
+> Source: [Seeed SO-10x LeRobot wiki](https://wiki.seeedstudio.com/lerobot_so100m/) ("If you purchased a pre-assembled robotic arm, please skip to the Calibrate section").
+
 Do this **one motor at a time** when prompted (it writes id+baudrate to each servo's EEPROM). Waveshare board: set both jumpers to channel **B (USB)**.
 ```bash
 # Follower (uses --robot.*)
@@ -49,8 +52,10 @@ lerobot-teleoperate \
 ```
 Move the leader; the follower should mirror it. (If calibration is missing it auto-runs first.)
 
+> **No camera needed for teleop.** This step only mirrors the leader onto the follower. Cameras become relevant only when you record data (§5 below, and [03-teleop-and-data](03-teleop-and-data.md)); they are not a prerequisite for teleoperation.
+
 ## 5. Add cameras
-Find them (saves test frames so you can confirm which is which):
+Cameras are needed for **recording datasets and vision policies**, not for teleop. Find them (saves test frames so you can confirm which is which):
 ```bash
 lerobot-find-cameras opencv        # or: lerobot-find-cameras realsense
 ```
