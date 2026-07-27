@@ -24,7 +24,7 @@ phi/
 │   ├── evaluation/           # standardized eval protocol + leaderboard
 │   ├── deployment/           # on-robot · remote · edge inference
 │   └── theory/               # why it works (links to concept notes)
-├── external/lerobot/         # the engine (git submodule, pinned)
+├── external/lerobot/         # LeRobot source reference (submodule; the env installs it from pinned PyPI)
 ├── src/phi/                  # thin library: data · train · eval · deploy · utils
 ├── configs/                  # versioned, seeded training/eval configs
 ├── tasks/                    # task registry (spec + dataset card + eval rubric)
@@ -38,10 +38,13 @@ phi/
 
 ```bash
 git clone --recurse-submodules <this-repo-url> phi && cd phi
-# if you forgot --recurse-submodules:  git submodule update --init --recursive
 conda env create -f env/environment.mac.yml   # or env/environment.cuda.yml on a GPU box
+conda activate phi                             # (phi-cuda on a GPU box)
+pip install -e .                               # the phi package (thin CLI over LeRobot)
 make help                                      # see every one-command entrypoint
 ```
+> LeRobot is installed from a **pinned PyPI release** (`0.6.0`, see [`env/`](env/)) — that is the source of truth for every machine. The `external/lerobot` submodule is only an optional source reference and **does not populate on exFAT-formatted drives** (harmless; the env doesn't use it).
+
 Then read [`docs/00-overview.md`](docs/00-overview.md) and follow the **member ladder** below.
 
 ## From arm to trained policy (the L0 → L2 run)
@@ -83,7 +86,7 @@ Hardware → Environment → Calibration/PID → Teleop → Data → Dataset QA
 
 ## Status
 
-🌱 **Phase 0 (scaffold).** Docs, environments, and structure are in place; setup/training/eval docs carry the real LeRobot commands. **Phase 1** (first reproducible SO-101 ACT run) begins when the arm arrives.
+🌿 **Phase 0 → Phase 1.** Docs, environments, and structure are in place; setup/training/eval docs carry the real LeRobot commands. The **Mac cockpit env is verified working** (2026-07-27, Apple M4 / macOS 26: Python 3.12 · LeRobot 0.6.0 · torch 2.11 MPS · Feetech SDK · all `lerobot-*` CLIs resolve). The **arm has arrived**, so **Phase 1** (first reproducible SO-101 ACT run) is beginning — next is `lerobot-find-port` → calibrate → teleop once the arm is connected to the cockpit.
 
 ## License & credits
 

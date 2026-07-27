@@ -14,6 +14,8 @@ dependencies:
   - pip
   - pip:
       # LeRobot core + robot workflows + Feetech motors (SO-100/101).
+      # Pinned to the version verified on the Φ cockpit (Apple M4 / macOS 26, 2026-07-27):
+      #   Python 3.12.13 · torch 2.11.0 (MPS) · torchcodec 0.11.1. Keep mac + cuda on the SAME version.
       # See docs/robots/so-arm101/02-setup.md for the exact install and why these extras.
-      - "lerobot[feetech,core_scripts]"
-      # add "lerobot[smolvla]" / "lerobot[pi]" / "lerobot[diffusion]" per policy when needed
+      - "lerobot[feetech,core_scripts]==0.6.0"
+      # add "lerobot[smolvla]==0.6.0" / "lerobot[pi]==0.6.0" / "lerobot[diffusion]==0.6.0" per policy when needed

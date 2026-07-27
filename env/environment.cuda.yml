@@ -12,8 +12,9 @@ dependencies:
   - pip
   - pip:
       # Install a CUDA-matched PyTorch first per your driver, then:
-      - "lerobot[training,feetech,core_scripts]"
+      # Pin to the SAME LeRobot version as the Mac cockpit (verified 0.6.0, 2026-07-27) for reproducibility.
+      - "lerobot[training,feetech,core_scripts]==0.6.0"
       # policy extras as needed:
-      - "lerobot[smolvla]"
-      # - "lerobot[pi]"          # pi0 / pi0.5 / pi0-FAST
-      # - "lerobot[diffusion]"   # Diffusion Policy
+      - "lerobot[smolvla]==0.6.0"
+      # - "lerobot[pi]==0.6.0"          # pi0 / pi0.5 / pi0-FAST
+      # - "lerobot[diffusion]==0.6.0"   # Diffusion Policy
