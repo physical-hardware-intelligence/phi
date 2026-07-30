@@ -28,6 +28,12 @@ data/
 # Docs build
 site/
 
+# Editor / IDE
+.vscode/
+.idea/
+
 # Secrets / local env
 .env
 *.local
+# machine-specific config (e.g. configs/ports.local.sh — serial ports differ per laptop)
+*.local.sh
