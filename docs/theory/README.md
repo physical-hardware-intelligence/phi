@@ -25,7 +25,12 @@ Every imitation policy answers one question: **how do you model `P(action | obs)
 - VQ-BeT → BC, BeT, Diffusion Policy
 - Patch Policy → ACT, VQ-BeT, Diffusion Policy, OpenVLA-OFT
 
-Baselines not linked below: [VQ-BeT](https://arxiv.org/abs/2403.03181) · [IBC](https://arxiv.org/abs/2109.00137) · [BeT](https://arxiv.org/abs/2206.11251) · [VINN](https://arxiv.org/abs/2112.01511) · [RT-1](https://arxiv.org/abs/2212.06817).
+Baselines not linked below: [IBC](https://arxiv.org/abs/2109.00137) · [BeT](https://arxiv.org/abs/2206.11251) · [VINN](https://arxiv.org/abs/2112.01511) · [RT-1](https://arxiv.org/abs/2212.06817).
+
+## Tokenized actions (BeT → VQ-BeT)
+Turn continuous actions into discrete "words" from a learned codebook, then language-model them with a transformer — **sample a mode instead of averaging**, in a single fast pass (VQ-BeT reports ~5× faster than diffusion). VQ-BeT tokenizes with a **residual VQ-VAE** (coarse + fine codes) plus a small continuous offset for fidelity.
+- VQ-BeT paper: https://arxiv.org/abs/2403.03181
+- Video explainer: https://youtu.be/V-zL7_jOo7w
 
 ## Imitation learning & action chunking (ACT)
 Copy expert demos, but predict a **chunk** of future actions at once to avoid compounding error.
