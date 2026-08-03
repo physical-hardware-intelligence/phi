@@ -19,6 +19,13 @@ pip install -e ".[feetech,core_scripts]"    # Feetech motors (SO-101) + record/r
 ```
 Extras you'll add later: `training` (train), `smolvla`, `pi` (pi0/pi0.5), `diffusion`.
 
+## 0.5 Wire the powered hub *first*
+Do this before §1, not after. Ports and camera indices are assigned per physical USB path, so **re-cabling invalidates every port and index you already saved.** Plug the hub into the laptop, then everything else into the hub — two arm boards and all cameras — and only then start finding ports.
+
+Five USB devices (2 arms + 3 cameras) is more than a laptop should power off its own bus; a bus-powered hub browns out mid-recording. Hardware choice and the bandwidth ceiling: [01-hardware](01-hardware.md#if-youre-buying-your-own).
+
+> ⚠️ **Per-port switches re-enumerate the device.** Flipping a port off and on is a physical unplug as far as the OS is concerned, so that camera can come back on a **different OpenCV index**. If a feed goes black or shows the wrong view, re-run `lerobot-find-cameras` (§5a) before debugging anything else.
+
 ## 1. Find the USB ports
 ```bash
 lerobot-find-port
@@ -80,6 +87,8 @@ Calibration is stored **per-machine**, so each laptop needs its own pass (the ar
 
 > 🚨 **Don't paste the example ports.** Every `/dev/tty.usbmodem…` in these docs is an *example* — yours differ, and macOS names can change per USB port/reboot. Pasting a doc literal gives `SerialException: [Errno 2] could not open port … No such file or directory`. Always `source configs/ports.local.sh` and use the variables below.
 
+> ⚠️ **`wrist_roll` mid-position differs between the follower and the leader.** The two arms do not share the same neutral rotation angle on that joint, so "the middle of its range of motion" is a **different physical wrist angle on each arm**. Set each arm's `wrist_roll` to *its own* mid-range when prompted; do not copy the leader's wrist angle onto the follower (or vice versa).
+
 ```bash
 source configs/ports.local.sh
 lerobot-calibrate --robot.type=so101_follower --robot.port=$FOLLOWER_PORT --robot.id=$FOLLOWER_ID
@@ -96,20 +105,56 @@ lerobot-teleoperate \
 Move the leader; the follower should mirror it. (If calibration is missing it auto-runs first.)
 
 ## 5. Add cameras
-Find them (saves test frames so you can confirm which is which):
+
+### 5a. Find the camera index (authoritative for LeRobot)
+`lerobot-find-cameras` **does not stream** — it records ~2 s and writes test frames so you can tell which camera is which:
 ```bash
 lerobot-find-cameras opencv        # or: lerobot-find-cameras realsense
+# options: --output-dir <path>  --record-time-s <sec>
 ```
+Use the index it reports in `--robot.cameras` below. Indices are **per-laptop**, like ports.
+
+### 5b. Quick live preview (no arms needed)
+Handy for aiming/focusing the camera before you wire anything up. macOS:
+```bash
+ffmpeg -f avfoundation -list_devices true -i ""      # list cameras by index
+ffplay -f avfoundation -framerate 30 -video_size 640x480 -i "1"   # stream index 1
+```
+> ⚠️ **avfoundation indices are NOT the same as OpenCV indices.** Use `ffplay` only to *look* at the picture; always take the number you put in `--robot.cameras` from `lerobot-find-cameras opencv`.
+> ⚠️ **First run will hang or go black until macOS Camera permission is granted.** Run it from a normal interactive terminal and accept the prompt, or pre-approve under **System Settings → Privacy & Security → Camera**. A non-interactive shell will just hang.
 Cameras are passed **inline** as a dict to `--robot.cameras`. Add `--display_data=true` to see live feeds (via `rerun`):
 ```bash
 lerobot-teleoperate \
   --robot.type=so101_follower --robot.port=$FOLLOWER_PORT --robot.id=$FOLLOWER_ID \
   --teleop.type=so101_leader  --teleop.port=$LEADER_PORT  --teleop.id=$LEADER_ID \
-  --robot.cameras="{ wrist: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30} }" \
+  --robot.cameras="{ wrist: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30, fourcc: MJPG} }" \
   --display_data=true
 ```
 Replace `index_or_path: 0` with the index `lerobot-find-cameras` reported for **your** camera (indices are per-laptop, like ports). On macOS the terminal needs **Camera** permission (System Settings → Privacy & Security → Camera) or the feed is black.
 RealSense uses `serial_number_or_name` instead of `index_or_path` (and `use_depth: true` for depth).
+
+Our three-camera setup ([which cameras and why](01-hardware.md#what-this-lab-actually-runs)) — substitute your own indices:
+```bash
+--robot.cameras="{ \
+  wrist:    {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30, fourcc: MJPG}, \
+  overview: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30, fourcc: MJPG}, \
+  side:     {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30, fourcc: MJPG} }"
+```
+Name the keys deliberately: **these strings become the observation keys in the recorded dataset**, and a policy trained on `overview` will not find a camera you later rename to `front`.
+
+### 5c. Bandwidth: set `fourcc: MJPG`
+Not optional once you have more than one camera. Every camera and both arm boards are **USB 2.0** devices sharing one **480 Mbps** bus, of which UVC isochronous transfer can use roughly **80%, so ~384 Mbps**.
+
+Uncompressed **YUY2** is 16 bits per pixel, so `width × height × 16 × fps`:
+
+| Stream | Uncompressed cost | Verdict |
+|---|---|---|
+| 640×480 @ 30 | ~147 Mbps each | 2 cameras fit, **3 do not** (441 Mbps) |
+| 1280×720 @ 30 | ~442 Mbps each | **exceeds the whole bus on its own** |
+
+MJPG compresses roughly 10:1 in-camera, which makes all of this a non-issue. **Symptoms of getting it wrong:** a camera that opens fine alone but fails when the others are on, dropped frames, or `lerobot-record` dying partway through a session. Diagnose bandwidth *before* suspecting the cameras.
+
+Related: [why the 3.0 hub doesn't help](01-hardware.md#if-youre-buying-your-own), and [why 640×480 is enough for every policy](01-hardware.md#how-much-resolution-do-we-actually-need).
 
 ✅ **You are now L1 (Operator).** Next: [record a dataset](03-teleop-and-data.md).
 

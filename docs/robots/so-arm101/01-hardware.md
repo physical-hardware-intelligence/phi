@@ -18,7 +18,29 @@ Canonical hardware source: **https://github.com/TheRobotStudio/SO-ARM100** (the 
 
 At least one camera; two is better. A **wrist camera** (on the gripper) + a **front/overview camera** is the standard combo — the wrist view nails gripper/contact outcomes, the overview nails object/scene outcomes. Any UVC webcam works via OpenCV; Intel RealSense (D405/D435) is supported but **not required** (our policies are RGB-only). Wiring and config: [02-setup](02-setup.md).
 
-**Club status (2026-07-30):** 1× wrist camera (32×32 mm USB module, bundled). A second (overview) camera is the highest-leverage outstanding purchase.
+### What this lab actually runs
+
+Selected 2026-08-02. Three cameras, **three different models on purpose** — identical webcams collide on USB enumeration and crash `lerobot-record` mid-session (see [What actually matters when choosing](#what-actually-matters-when-choosing), item 4) — plus a powered hub.
+
+| Role | Device | The spec that mattered | Mount |
+|---|---|---|---|
+| **Wrist** | 32×32 mm USB module (bundled with the Kit Pro) | small enough to sit on the gripper | arm's own bracket |
+| **Overview** | **EMEET C960** | **90° dFOV**, fixed focus, **1/4″-20 thread**, 1080p30, USB-A | 3-section articulating boom arm, clamped to the table, camera overhead |
+| **Second view** | **Logitech Brio 101** | **58° dFOV**, fixed focus, 1080p30, USB-A | **AceTaken magnetic stand** (Logitech-foot specific) |
+| **Power** | **Leinsis 7-port powered USB 3.0 hub** | **12 V / 2 A (24 W)**, per-port switch + LED | — |
+
+**Why two different mounts, not two of the same.** This is the detail that wastes an afternoon if you get it wrong: **the C960 has a 1/4″-20 tripod thread and the Brio 101 does not.** The Brio uses Logitech's own mounting foot, which is why the AceTaken magnetic stand is Logitech-specific. So the threaded camera goes on the boom arm and the Logitech goes on the magnetic stand. Check the fit of *your* camera against *your* mount before ordering — "webcam stand" is not a standard.
+
+**Why the C960 is the overview camera** — field of view, which is the one spec that actually differs between them. Horizontal coverage at distance `d` is `W = 2·d·tan(hFOV/2)`, and for a 16:9 sensor `tan(hFOV/2) ≈ 0.872 · tan(dFOV/2)`:
+
+| Camera | dFOV | ≈ hFOV | Visible width at 60 cm |
+|---|---|---|---|
+| EMEET C960 | 90° | ~82° | **~105 cm** |
+| Logitech Brio 101 | 58° | ~52° | **~58 cm** |
+
+The C960 sees **~1.8× wider from the same distance**. With a multi-bin workspace that is the difference between one camera covering the task and having to push the mount so far back the objects get small. Run the formula for your own table before you buy.
+
+> ⚠️ **Two checks still open (do them on arrival, then update this table):** that the boom arm's screw is really 1/4″-20 and takes the C960's weight at full extension, and that the AceTaken's magnet holds the Brio 101 without creep — a mount that sags between recording and evaluation silently invalidates the policy (see [Placement](#placement)).
 
 ### How much resolution do we actually need?
 
@@ -42,27 +64,34 @@ Counter-intuitive but verified against the installed `lerobot` 0.6.0 policy conf
 
 Ranked by real impact:
 
-1. **Field of view** — the genuine differentiator for an overview cam. A ~55° lens covers ~53 cm at 60 cm distance; ~78° covers ~84 cm. Pick for your workspace size and how close you must mount (Room 1012 is small).
+1. **Field of view** — the genuine differentiator for an overview cam, and the reason we run a 90° camera above the table. Use `W = 2·d·tan(hFOV/2)`; numbers for our two cameras are in the table above. Pick for your workspace size and how close you can physically mount.
 2. **Fixed focus > autofocus.** AF hunts when the gripper moves close, changing the image mid-episode. Fixed-focus cameras avoid this; on AF cameras, **disable it**.
 3. **Manual exposure + white balance lock.** Auto-exposure drift between sessions is a documented cause of policy failure — the model overfits to lighting. See the macOS note below.
 4. **A different model from your other camera.** ⚠️ Two *identical* webcams cause USB path/enumeration collisions that crash `lerobot-record` mid-session. Always mix models.
 5. **UVC compliance** — plug-and-play, no drivers.
 6. Rolling vs global shutter: rolling is fine for slow tabletop manipulation. Global shutter (e.g. Arducam machine-vision modules) only matters for fast/dynamic motion.
 
-### Recommended options
+### If you're buying your own
 
-| Option | ~Cost | Verdict |
-|---|---|---|
-| **Logitech C270** | $20–25 | **Best value for our tasks.** 720p30, ~55° FOV, **fixed focus** (a plus), UVC. Clears every policy above |
-| **Logitech C920 / C920x** | $50–70 | Wider **78° FOV** + the most-documented camera in the LeRobot/ROS ecosystem. Choose if the workspace grows or you must mount close. AF must be disabled |
-| **Arducam UVC module** (onboard ISP) | [price unverified] | Technically best: **native manual exposure/WB/gain in hardware**, global-shutter options. Board-level, so you solve mounting yourself |
+Any UVC webcam works. Rank candidates by **FOV → fixed focus → a model you don't already own → mount compatibility**, and ignore megapixels. A ~$25 720p camera clears every policy in the table above.
 
-Also budget a **mount** (mini tripod / gooseneck clamp, ~$10–15) and a **powered USB hub** (~$20–30) — 2 arms + 2 cameras = 4 USB devices, and a bus-powered hub can brown out mid-recording.
+- **Wide + threaded** (like our C960) for the overview. Wide is the whole point; a 1/4″-20 thread means any tripod or arm fits.
+- **Avoid autofocus** if you can. Both of ours are fixed focus, which is one less thing to fight. On an AF camera, disable it.
+- **Board-level modules** (e.g. Arducam with an onboard ISP) are technically the best option — **manual exposure/WB/gain in hardware**, global-shutter variants — but you solve mounting yourself.
 
-### ⚠️ macOS: locking exposure needs a third-party tool
-macOS does **not** expose UVC camera controls system-wide, and Logitech's own software (Logi Tune / Capture) offers **no exposure control**. On Linux this is native (`v4l2-ctl`). On our Mac cockpit, use either:
+**Budget for a powered hub.** Ours is 12 V / 2 A. Two arms plus three cameras is **five USB devices**; a bus-powered hub can brown out mid-recording and take a session with it. Per-port switches are worth it: you can power-cycle one camera without crawling behind the table.
+
+> ⚠️ **A USB 3.0 hub does not make USB 2.0 cameras faster.** Every camera here, and both arm control boards, are USB 2.0 devices. They share one **480 Mbps** bus no matter what the hub is rated for. The hub buys you **power and ports, not bandwidth** — for bandwidth you set `fourcc: MJPG`, see [02-setup §5c](02-setup.md#5c-bandwidth-set-fourcc-mjpg).
+
+### ⚠️ Exposure: LeRobot cannot set it, and neither can macOS
+
+Worth knowing before you go looking for the setting. **`OpenCVCameraConfig` in LeRobot 0.6.0 has no exposure, gain, white-balance or focus field.** The complete set is `index_or_path · fps · width · height · color_mode · rotation · warmup_s · fourcc · backend`. There is no knob to turn, so exposure has to be locked *outside* LeRobot, before you record.
+
+And macOS does **not** expose UVC controls system-wide — Logitech's own software (Logi Tune / Capture) offers **no exposure control** either. On Linux this is native (`v4l2-ctl`). On our Mac cockpit, use either:
 - **[`uvcc`](https://github.com/joelpurra/uvcc)** — free, open-source CLI UVC configurator (Node). **Preferred**: scriptable, so the exact exposure/WB values get committed to this repo and re-applied before every session.
-- **[Webcam Settings](https://apps.apple.com/us/app/webcam-settings/id533696630)** (~$8, Mac App Store) — GUI; supports C920/C270; can re-write settings at intervals to hold them locked.
+- **[Webcam Settings](https://apps.apple.com/us/app/webcam-settings/id533696630)** (~$8, Mac App Store) — GUI; can re-write settings at intervals to hold them locked.
+
+**The free mitigation, and do this regardless: fix the lighting.** If the room's light doesn't change, auto-exposure has nothing to drift toward. Record and evaluate under the same lamp, at the same time of day, blinds shut. That costs nothing and removes most of the risk.
 
 ### Placement
 For an overview camera, **front-high angled down** beats front-and-side: less occlusion during the grasp, and a top-down component reveals **gripper position relative to object centre**. Tape/mark the mount so it is identical between data collection and evaluation — a camera that moves between recording and eval invalidates the policy.
