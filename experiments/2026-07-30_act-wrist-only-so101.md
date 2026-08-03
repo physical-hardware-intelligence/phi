@@ -1,6 +1,43 @@
 # ACT on SO-101 — wrist-camera-only baseline
 
-**Status**: Planned · **Owner**: Yash · **Created**: 2026-07-30
+**Status**: Dataset collected, training pending · **Owner**: Yash · **Created**: 2026-07-30
+
+## ▶ Actual run (supersedes the planned numbers below where they differ)
+
+**Dataset**: [`Parv-09/Ava_1.0_20260730_172156`](https://huggingface.co/datasets/Parv-09/Ava_1.0_20260730_172156) (public, Apache-2.0, recorded with **LeLab**)
+
+| Property | Value |
+|---|---|
+| Episodes | 60 (4 bins) |
+| Total frames | **21,522** |
+| Mean episode | **~12.0 s** (359 frames) — plan assumed 10 s |
+| Camera | `observation.images.wrist_cam`, 480×640, **AV1** crf 30 |
+| State / action dim | 6 / 6 · fps 30 · `robot_type: so_follower` |
+| Task | pick up the orange and put it in the plate |
+
+**⚠️ Known dataset flaw, deliberately kept:** **one of the four bins is not in the wrist camera's field of view at episode start.** Per §0 this is *the* predicted wrist-only failure mode. Keeping it turns the dataset into an accidental controlled experiment — **report success rate per bin**, and expect that bin to be far worse. Do not average it away.
+
+**Config**: [`configs/act_ava_1.0.sh`](../configs/act_ava_1.0.sh) (`smoke` | `bench` | `train`) · [`configs/act_ava_1.0.slurm`](../configs/act_ava_1.0.slurm) (Explorer)
+
+### Measured throughput — why training moved off the Mac
+Benchmarked on the M4 Air cockpit (MPS), 2026-07-30:
+
+| Batch | it/s | `updt_s` | `data_s` | 50k steps |
+|---|---|---|---|---|
+| 2 | 2.15 | 0.510 | 0.041 | ~6.5 h |
+| **8** | **0.55** | 1.701 | 0.040 | **~25.3 h** |
+
+`data_s ≈ 0.04` throughout, so **AV1 decode is not a bottleneck** (M4 hardware decode) — it is pure compute. 25 h on a *fanless* Air that will throttle is not viable. **→ train on CUDA** (Explorer, or HF Jobs with `--job.target=a10g-small`).
+
+Smoke test passed at 200 steps: 51,597,190 params (52 M), loss falling 9.05 → (bench) 6.89 by step 200 @ batch 8.
+
+### Gotchas hit while wiring this up
+- `lerobot-train` hard-requires the **`training` extra** (`accelerate`); the Mac env omitted it by design. Added.
+- **`policy.push_to_hub` defaults to `True`**, and `validate()` then demands a `repo_id` — every invocation must pass `--policy.push_to_hub=false` unless you really are uploading.
+- **`wandb login` must be done before the real run**, or a multi-hour run silently loses its charts.
+
+---
+
 **Hardware**: SO-101 leader+follower (Ava), **1× wrist camera only** (32×32 mm USB module)
 **Goal**: Train and evaluate an ACT policy end-to-end, establishing the club's first real baseline.
 

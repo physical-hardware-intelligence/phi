@@ -17,5 +17,9 @@ dependencies:
       # Pinned to the version verified on the Φ cockpit (Apple M4 / macOS 26, 2026-07-27):
       #   Python 3.12.13 · torch 2.11.0 (MPS) · torchcodec 0.11.1. Keep mac + cuda on the SAME version.
       # See docs/robots/so-arm101/02-setup.md for the exact install and why these extras.
-      - "lerobot[feetech,core_scripts]==0.6.0"
+      # `training` is included so smoke tests / benchmarks / small runs work on the
+      # cockpit (lerobot-train hard-requires `accelerate`). Real runs still belong on
+      # a CUDA box — a fanless Mac throttles over multi-hour training.
+      - "lerobot[training,feetech,core_scripts]==0.6.0"
+      - "wandb"          # training charts (loss, l1, kld, lr, grad norm)
       # add "lerobot[smolvla]==0.6.0" / "lerobot[pi]==0.6.0" / "lerobot[diffusion]==0.6.0" per policy when needed
