@@ -26,6 +26,25 @@ Config traced: **2 cameras @ 640×480**, `state_dim=6`, `action_dim=6`, `chunk_s
 
 > ⚠️ **Batch is the *middle* dimension inside the transformer.** ACT is batch-first at the boundaries and **sequence-first** in between, because `nn.MultiheadAttention` defaults to `batch_first=False`. In `(602, 8, 512)` the `8` is your batch; `602` and `50` are sequence lengths. Misread this and you will think the model emits 50 batches.
 
+## What one training sample is
+
+**A sample is one frame, not one episode.** `batch_size=32` means 32 individual timesteps, plucked from anywhere in the training episodes. At chunk 50, `ds[i]` returns:
+
+| Key | Shape | What it is |
+|---|---|---|
+| `observation.images.<cam>` | `(3, 480, 640)` | **one** frame per camera (ACT has `n_obs_steps=1`) |
+| `observation.state` | `(6,)` | joint positions at that instant |
+| `action` | `(50, 6)` | **the label** — the next 50 actions |
+| `action_is_pad` | `(50,)` | which of those ran past the episode end |
+
+So the dataset is a **flat table of frames**, not a list of episodes: 89 episodes → 54,770 rows. The sampler shuffles rows, so one batch is typically 32 *different* episodes at 32 unrelated moments — one mid-reach, one closing the gripper, one releasing over the bin. The only episode-bound part is the label: the action chunk always comes from the sample's own episode, which is why `action_is_pad` exists.
+
+**An epoch is one pass over all frames.** `epochs = samples / num_frames`, so `34,000 steps × 32 / 54,770 = 19.9 epochs`.
+
+> ⚠️ **`ep:` in the training log is not an episode count.** It is derived as `samples / (num_frames / num_episodes)` — "episodes' worth of frames". At `epch:0.58` you have seen ~58% of the frames from *every* episode, not 52 whole ones. Easy to misread on a status check.
+
+**Why this makes decoding expensive, unavoidably.** Every sample is an independent random seek into a video file: jump to the nearest keyframe, decode forward to the target, discard the rest. Measured ~61 ms/sample under shuffle versus ~14 ms reading frames in order — a **4.5× penalty**. Reading sequentially would be far cheaper and would also ruin training: 32 consecutive frames from one episode are 32 near-identical images with near-identical actions, i.e. one redundant gradient wearing a batch's costume. The expensive access pattern is the price of a diverse gradient, not an inefficiency to remove. Throughput consequences: [hpc/explorer](../hpc/explorer.md#reading-the-throughput-numbers).
+
 ## Where 602 comes from
 
 ```

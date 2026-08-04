@@ -92,6 +92,44 @@ V100-SXM2-32GB · 2 cameras @ 640×480 · chunk 100 · `num_workers=8` · pyav:
 
 **`smpl/s` is flat across batch size** → runs are GPU-bound, so wall time depends on *samples processed*, not batch size. Fit: **≈ 0.62 GB + 0.393 GB/sample** (linear to 3 decimal places across all three points), so batch 71 fits 32 GB. Batch 48 buys +1.8% throughput for +48% VRAM — the GPU is already saturated at batch 16. Shape-level detail in [act-shapes](../theory/act-shapes.md).
 
+### Reading the throughput numbers
+
+`lerobot_train.py:603` defines the step as **two stopwatches**:
+
+```python
+step_time = update_s.avg + dataloading_s.avg
+```
+
+- **`updt_s`** — the **GPU**: forward + backward + optimizer.
+- **`data_s`** — the training loop **sitting idle**, waiting for the next batch to arrive.
+
+Dataloader workers are separate processes decoding video **while the GPU computes**, so the two overlap and the step costs `max(GPU rate, worker supply rate)`. If workers keep up, `data_s ≈ 0` and decoding is free.
+
+**A bottleneck is not a property of a component — it is whichever component is slowest.** Same 8 workers, same dataset, two GPUs:
+
+| GPU | Workers supply a batch every | GPU consumes one every | `data_s` |
+|---|---|---|---|
+| V100 | 0.245 s | **0.577 s** | 0.005 — hidden |
+| H200 | 0.245 s | **0.114 s** | **0.131 — the ceiling** |
+
+Nothing about the pipeline changed. The GPU got 5× faster and decode became the limit. On an H200 at `--num_workers=8` we ran at 4.08 steps/s where the GPU alone could do ~8.8 — **half the machine idle**.
+
+You can back out the true per-sample cost from `data_s`:
+
+```
+step_time 0.245 s × 8 workers / 32 samples = 61 ms per sample
+```
+
+against ~14 ms measured reading frames **in order**. That 4.5× is the random-seek penalty of shuffled sampling — see [act-shapes](../theory/act-shapes.md#what-one-training-sample-is) for why the expensive pattern is required rather than wasteful.
+
+**⇒ Request `--cpus-per-task=16 --num_workers=16`.** With mixed-GPU eligibility you cannot tune per-GPU; extra workers idle harmlessly on a slow GPU and pay for themselves on a fast one. Three limits:
+
+- **One core per worker.** 8 workers on `--cpus-per-task=8` already oversubscribes (workers + main process). More workers without more cores just makes them fight.
+- **RAM.** Each worker holds `prefetch_factor=2` batches. At 2 cameras, 640×480 uint8 ≈ 1.84 MB/sample → 59 MB/batch → 16 workers ≈ **1.9 GB**. Fine in a 64 GB request; the reason you cannot set 64 workers.
+- **Diminishing returns.** Once `data_s ≈ 0` you are GPU-bound and extra workers do nothing but consume your allocation.
+
+`num_workers` affects **speed only, never results** — safe to change between runs without breaking comparability.
+
 Step budget:
 
 ```
