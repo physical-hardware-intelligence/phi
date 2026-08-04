@@ -24,6 +24,7 @@ Key LeRobot references (bookmark these):
 | Bring-up | find-port → setup-motors → calibrate → teleop + cameras | [robots/so-arm101/02-setup](robots/so-arm101/02-setup.md) |
 | Data | record datasets, LeRobotDataset format, QA, replay | [robots/so-arm101/03-teleop-and-data](robots/so-arm101/03-teleop-and-data.md) |
 | Training | policy zoo: ACT · Diffusion · SmolVLA · pi0 | [training](../training/README.md) |
+| HPC | Explorer/SLURM: partitions, the CUDA + ESTALE traps, measured throughput | [hpc/explorer](hpc/explorer.md) |
 | Evaluation | standardized rollout protocol + leaderboard | [evaluation](../evaluation/README.md) |
 | Deployment | on-robot / remote / edge inference | [deployment](../deployment/README.md) |
 | Theory | *why* it works (flow matching, VLAs, RL-VLA) | [theory](../theory/README.md) |

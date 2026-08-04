@@ -2,6 +2,8 @@
 
 Training is **shared across robots**. You pick a policy with `--policy.type=...` and point it at a LeRobotDataset. Train on a **GPU box / Explorer HPC / HF Jobs**, not the Mac.
 
+> Running on Northeastern's Explorer cluster? Read [hpc/explorer](../hpc/explorer.md) first — partitions, the cu130-vs-driver-545 trap, `/scratch` ESTALE, and measured ACT throughput. Job scripts are in [`configs/hpc/`](../../configs/hpc/).
+
 > Reference: [lerobot-train](https://huggingface.co/docs/lerobot/en/il_robots#train-a-policy) · policy docs linked below.
 
 ## The zoo (what we support, in learning order)

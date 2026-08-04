@@ -1,5 +1,7 @@
 # SO-ARM101 — Setup & Bring-up
 
+> Installing on the **Explorer HPC** instead of a laptop? Use [hpc/explorer](../../hpc/explorer.md) — the cluster needs a pinned CUDA variant, a job-local conda `$HOME`, and `PYTHONNOUSERSITE=1`.
+
 End-to-end from a fresh machine to a teleoperating arm with cameras. Commands are the **current LeRobot CLI** (verified against the docs). Ports and ids below are **examples — substitute your own**.
 
 > Reference: [installation](https://huggingface.co/docs/lerobot/en/installation) · [SO-101 page](https://huggingface.co/docs/lerobot/en/so101) · [il_robots tutorial](https://huggingface.co/docs/lerobot/en/il_robots)
