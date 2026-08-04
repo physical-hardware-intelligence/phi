@@ -88,8 +88,9 @@ V100-SXM2-32GB · 2 cameras @ 640×480 · chunk 100 · `num_workers=8` · pyav:
 |---|---|---|---|---|---|
 | 16 | 0.299 | 0.005 | 3.29 | 53 | 6.91 GB |
 | 32 | 0.577 | 0.009 | 1.71 | 55 | 13.2 GB |
+| 48 | 0.851 | 0.012 | 1.16 | 56 | 19.5 GB |
 
-**`smpl/s` is flat across batch size** → runs are GPU-bound, so wall time depends on *samples processed*, not batch size. Fit: **≈ 0.62 GB + 0.39 GB/sample**, so batch 64 fits 32 GB. Shape-level detail in [act-shapes](../theory/act-shapes.md).
+**`smpl/s` is flat across batch size** → runs are GPU-bound, so wall time depends on *samples processed*, not batch size. Fit: **≈ 0.62 GB + 0.393 GB/sample** (linear to 3 decimal places across all three points), so batch 71 fits 32 GB. Batch 48 buys +1.8% throughput for +48% VRAM — the GPU is already saturated at batch 16. Shape-level detail in [act-shapes](../theory/act-shapes.md).
 
 Step budget:
 

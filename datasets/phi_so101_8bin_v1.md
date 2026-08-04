@@ -92,18 +92,20 @@ And the held-out eval episodes:
 ```
 ⚠️ These are **post-deletion** indices. Do not re-derive them from the original 120-episode numbering — everything after original episode 18 shifted down by one.
 
-## Training matrix (2026-08-03 plan)
+## Training matrix
 
-Three axes: **camera set × action chunk × augmentation.**
+Two axes as of **2026-08-04**: **camera set × action chunk**. **Augmentation is deferred** — it was a third axis in the 2026-08-03 plan (which made 24 runs) and remains a planned later ablation, not a cancelled one.
 
-| Owner | Cameras (physical) | Dataset keys | Chunks | Aug | Runs |
+| Owner | Cameras (physical) | Dataset keys | Chunks | Runs | Status |
 |---|---|---|---|---|---|
-| **Sai** | all three | `wrist`, `front`, `top` | 50 / 75 / 100 | on + off | 6 |
-| **Parv** | top + front, no wrist | `wrist`, `front` | 50 / 75 / 100 | on + off | 6 |
-| **Yash** | wrist + top | `top`, `wrist` | 50 / 75 / 100 | on + off | 6 |
-| **Yash** | wrist + front | `top`, `front` | 50 / 75 / 100 | on + off | 6 |
+| **Yash** | wrist + top | `top`, `wrist` | 50 / 75 / 100 | 3 | **launched** — array `8935891`, [write-up](../experiments/2026-08-04_act-8bin-6run.md) |
+| **Yash** | wrist + front | `top`, `front` | 50 / 75 / 100 | 3 | **launched** — same array |
+| **Sai** | all three | `wrist`, `front`, `top` | 50 / 75 / 100 | 3 | not started |
+| **Parv** | top + front, no wrist | `wrist`, `front` | 50 / 75 / 100 | 3 | not started |
 
-**24 runs total** (4 camera sets × 3 chunks × 2 augmentation states).
+**12 runs** across the three owners; Yash's 6 are running. Measured config (batch 32, 34,000 steps = 20 epochs, ~5.5 h on a V100) and the throughput numbers behind it: [the experiment write-up](../experiments/2026-08-04_act-8bin-6run.md) and [hpc/explorer](../docs/hpc/explorer.md).
+
+⚠️ **`--dataset.video_backend=pyav` is required on Explorer** — torchcodec cannot load there. Without it nothing decodes and the job dies before reaching the GPU.
 
 ### Flags (verified against the installed `lerobot-train`)
 ```bash
@@ -113,8 +115,8 @@ Three axes: **camera set × action chunk × augmentation.**
 ```
 Related transform knobs if the default set needs tuning: `--dataset.image_transforms.max_num_transforms`, `.random_order`, `.tfs`. Preview what a transform actually does with `lerobot-imgtransform-viz` before spending cluster time on it.
 
-### Keep the augmentation comparison honest
-Augmentation on/off is the one axis here that is **cheap to confound**. Vary it alone: same camera set, same chunk, same seed, same train split, same step count. If two runs differ in augmentation *and* anything else, the comparison is worthless — and with 24 runs the temptation to change two things at once is real.
+### If/when augmentation is added back
+Augmentation on/off is the one axis here that is **cheap to confound**. Vary it alone: same camera set, same chunk, same seed, same train split, same step count. If two runs differ in augmentation *and* anything else, the comparison is worthless — and the temptation to change two things at once is real. Note also that on Explorer **resize and augmentation are mutually exclusive** through LeRobot's transform pipeline — see [act-shapes](../docs/theory/act-shapes.md).
 
 **Report success rate per held-out bin, not averaged.** With 15 eval episodes per bin, a single success is 6.7%, so per-bin numbers are already noisy — and averaging the two OOD bins throws away the left-vs-right comparison the design exists to make.
 

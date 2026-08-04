@@ -35,12 +35,24 @@ set -uo pipefail
 PROJECT=/scratch/$USER/phi
 REPO_ID=BrutalCaesar/phi_so101_8bin_v1
 
-# --- measured, not guessed: set from configs/hpc/bench_act.sbatch -------------
-# d1025 is excluded so the smallest eligible GPU is 32 GB; this batch must fit
-# there, at chunk 100, which is the worst case of our three.
+# --- MEASURED on V100-SXM2-32GB, 2 cams, chunk 100, pyav (bench 8935610) -----
+#   batch 16  updt_s 0.299  data_s 0.005  3.29 steps/s  53 smpl/s   6.91 GB
+#   batch 32  updt_s 0.577  data_s 0.009  1.71 steps/s  55 smpl/s  13.20 GB
+#   batch 48  updt_s 0.851  data_s 0.012  1.16 steps/s  56 smpl/s  19.49 GB
+#
+# smpl/s is FLAT (53->56 for 3x the batch): the GPU is saturated by batch 16, so
+# wall time tracks samples processed, not batch size. VRAM is linear at
+# 0.62 GB + 0.393 GB/sample, so batch 71 would fit 32 GB — memory is not the
+# constraint and batch 48 buys +1.8% throughput for +48% VRAM. Batch 32 sits at
+# the plateau and matches the earlier Ava config.
+#
+# 34,000 steps = 20 epochs over 54,770 train frames = 5.5 h on a V100, leaving
+# 2.5 h of the 8 h wall as slack. Above LeRobot's own default (100k steps at
+# batch 8 = 14.6 epochs here). Under-shooting is cheap (--resume from `last`);
+# over-running the wall loses the whole run. See docs/hpc/explorer.md.
 BATCH_SIZE=${BATCH_SIZE:-32}
-STEPS=${STEPS:-60000}
-SAVE_FREQ=${SAVE_FREQ:-10000}
+STEPS=${STEPS:-34000}
+SAVE_FREQ=${SAVE_FREQ:-5000}
 
 # --- the 6-run grid ----------------------------------------------------------
 # task 0,1,2 = camera set A (physical wrist + top)   at chunk 50, 75, 100
