@@ -43,13 +43,15 @@ REPO_ID=BrutalCaesar/phi_so101_8bin_v1
 # smpl/s is FLAT (53->56 for 3x the batch): the GPU is saturated by batch 16, so
 # wall time tracks samples processed, not batch size. VRAM is linear at
 # 0.62 GB + 0.393 GB/sample, so batch 71 would fit 32 GB — memory is not the
-# constraint and batch 48 buys +1.8% throughput for +48% VRAM. Batch 32 sits at
-# the plateau and matches the earlier Ava config.
+# constraint. NOTE these are reference numbers only; we do NOT pick a batch size
+# from them. Because smpl/s is flat, a matched-EPOCH run costs the same wall time
+# at any batch size, so there is no throughput argument for deviating from the
+# default. (A larger batch also looks better at equal STEPS in a bench — 2.74 /
+# 2.44 / 2.34 at 16/32/48 — but only because it consumed 2x and 3x the data by
+# then. That is not evidence of better optimisation.)
 #
-# 34,000 steps = 20 epochs over 54,770 train frames = 5.5 h on a V100, leaving
-# 2.5 h of the 8 h wall as slack. Above LeRobot's own default (100k steps at
-# batch 8 = 14.6 epochs here). Under-shooting is cheap (--resume from `last`);
-# over-running the wall loses the whole run. See docs/hpc/explorer.md.
+# Under-shooting is cheap (--resume from `last`); over-running the 8 h wall
+# loses the whole run. See docs/hpc/explorer.md.
 #
 # EXCLUSIONS (see #SBATCH above): d1025 is the only sub-32GB node (t4), and
 # c2204-c2207 are the Zen-1 nodes (AMD EPYC 7351, 2.4 GHz max) whose HOST CPU is
@@ -59,9 +61,18 @@ REPO_ID=BrutalCaesar/phi_so101_8bin_v1
 # ACT is kernel-launch bound at these tensor sizes, so host single-thread speed
 # sets updt_s. At 1.86 s/step a 34k-step run needs 17.5 h and the 8 h wall would
 # kill it at ~45%. The A100 nodes are Zen 2 and are fine; only Zen 1 is excluded.
-BATCH_SIZE=${BATCH_SIZE:-32}
-STEPS=${STEPS:-34000}
-SAVE_FREQ=${SAVE_FREQ:-5000}
+# ⇒ LEROBOT DEFAULTS, deliberately. batch 8 / 100,000 steps / save every 20,000
+# is what `lerobot-train` ships with, and optimizer_lr=1e-5 is the LR paired with
+# THAT batch size (nothing in LeRobot rescales the LR — verified). Sai, Parv and
+# Yash all run these numbers so the camera-set comparison is apples-to-apples:
+# step count is NOT comparable across batch sizes (34,000 steps is 20 epochs at
+# batch 32 but 5 epochs at batch 8), so the shared unit has to be the config.
+#   100,000 x 8 = 800,000 samples / 54,770 frames = 14.6 epochs
+#   updt_s(8) ~ 0.161 s from the linear fit over the benched 16/32/48
+#   -> ~4.5 h on a V100-SXM2, ~1.7 h on an H200. Both inside the 8 h wall.
+BATCH_SIZE=${BATCH_SIZE:-8}
+STEPS=${STEPS:-100000}
+SAVE_FREQ=${SAVE_FREQ:-20000}
 
 # --- the 6-run grid ----------------------------------------------------------
 # task 0,1,2 = camera set A (physical wrist + top)   at chunk 50, 75, 100
