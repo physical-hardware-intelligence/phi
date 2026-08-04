@@ -59,6 +59,7 @@ for BS in 16 32 48; do
   rm -rf "$OUT"
   /usr/bin/time -v lerobot-train \
     --dataset.repo_id=$REPO_ID \
+    --dataset.video_backend=pyav \
     --policy.type=act \
     --policy.device=cuda \
     --policy.push_to_hub=false \
@@ -71,8 +72,17 @@ for BS in 16 32 48; do
     --seed=1000 \
     --output_dir="$OUT" --job_name=bench_bs${BS} \
     --wandb.enable=false 2>&1 | grep -Ei "smpl|updt_s|data_s|it/s|steps|CUDA out of memory|Error|Maximum resident" | tail -12
+  RC=${PIPESTATUS[0]}
   echo "peak GPU memory after bs=$BS:"
   nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader
+  # 🚨 Do NOT let a piped-through-grep failure look like success. Bench 8935296
+  # exited 0 while every batch size had died on a torchcodec load error and
+  # nothing ever reached the GPU (peak 0 MiB). If the FIRST batch size cannot
+  # run at all, the problem is the env, not the batch — stop immediately.
+  if [ "$RC" -ne 0 ] && [ "$BS" -eq 16 ]; then
+    echo "FATAL: batch 16 failed outright — this is not an OOM. See the log above."
+    exit 1
+  fi
 done
 
 echo ""

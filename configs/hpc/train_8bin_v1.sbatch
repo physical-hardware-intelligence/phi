@@ -125,6 +125,7 @@ echo "=============================================================="
 srun lerobot-train \
   --dataset.repo_id=$REPO_ID \
   --dataset.episodes="$EPISODES" \
+  --dataset.video_backend=pyav \
   --policy.type=act \
   --policy.device=cuda \
   --policy.push_to_hub=false \
