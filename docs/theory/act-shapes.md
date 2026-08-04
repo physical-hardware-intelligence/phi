@@ -116,6 +116,50 @@ Strongly nonlinear at small batch, where fixed cost dominates. Fitting B = 2, 4,
 
 The 24 GB row explains a failure you will read about in other people's writeups: **ACT at 640×480 with 2 cameras OOMs at `batch_size=64` on 24 GB.** The fix people reach for is halving the batch, which then needs 2× the steps for the same sample count. That is arithmetic, not an ACT defect — and on Explorer's H200s the constraint does not apply.
 
+## Should you resize before the backbone?
+
+ACT has no resize, but you can add one — and it is the single biggest lever on both memory and speed. Measured end-to-end training steps (2 cameras, chunk 50, batch 8, MPS fp32):
+
+| Input | layer4 grid | Tokens/cam | 2-cam encoder | Backbone act/cam | Step time |
+|---|---|---|---|---|---|
+| **480×640** | 15×20 | 300 | **602** | 1,465 MB | 3,229 ms · 0.31 it/s |
+| 360×480 | 12×15 | 180 | 362 | 828 MB | — |
+| **240×320** | 8×10 | 80 | **162** | 367 MB | **931 ms · 1.07 it/s** |
+| 224×224 | 7×7 | 49 | 100 | 239 MB | **622 ms · 1.61 it/s** |
+| 120×160 | 4×5 | 20 | 42 | 92 MB | — |
+
+Halving to 240×320 gives **3.7× fewer tokens, 2.3× less memory, 3.5× faster steps**.
+
+> ⚠️ `H//32` only gives the grid when H and W are multiples of 32. 240×320 yields **8×10, not 7×10**, because conv padding rounds up. Read the grid off this table.
+
+**How to do it.** LeRobot's transform factory accepts any `torchvision.transforms.v2` class, so the augmentation pipeline can be coerced into a deterministic resize: set `enable=true`, `max_num_transforms=1`, and a single `tfs` entry of `type: Resize`. It is deterministic because weight-0 transforms are skipped and `n_subset = min(len(tfs), max_num_transforms) = 1`, so the one transform is always drawn. Verified: 50/50 draws returned `(3, 240, 320)`.
+
+> 🚨 **Never list Resize alongside other transforms.** With resize as 1-of-4 and `max_num_transforms=3`, draws returned *both* `(3,240,320)` and `(3,480,640)` — mixed shapes in one batch crash collation. Safe only when every other weight is 0. (Which means **resize and augmentation are mutually exclusive** through this mechanism.)
+>
+> Not yet verified: whether draccus accepts a new `tfs` key from the command line, since the default dict has no `resize` entry. Prefer a config file.
+
+### 🚨 A resolution mismatch at inference does not raise
+
+Build a policy for 240×320 and feed it something else:
+
+```
+trained@240x320, fed 240x320: RAN, out (1, 50, 6)
+trained@240x320, fed 480x640: RAN, out (1, 50, 6)   <- 602 tokens instead of 162
+trained@240x320, fed 224x224: RAN, out (1, 50, 6)
+```
+
+**All of them run silently and return a plausible action chunk.** The camera positional embedding is sinusoidal and generated *from the feature map*, so it adapts to any grid; the learned 1D embedding is only 2 rows (latent + state), independent of image size. There is no shape assertion anywhere in the path — the code even comments that "H and W may vary but H\*W is constant."
+
+So a policy trained resized and rolled out un-resized operates far outside its training distribution **with no error and no warning**. It just moves badly. Two ways to match:
+
+1. **Apply the identical resize in the rollout pipeline.** Correct by construction.
+2. **Capture at that resolution** (`--robot.cameras="{ top: {..., width: 320, height: 240} }"`), which also cuts USB bandwidth — see [02-setup §5c](../robots/so-arm101/02-setup.md#5c-bandwidth-set-fourcc-mjpg). ⚠️ But **many UVC webcams crop rather than scale at lower resolutions**, changing the field of view — then it is not the same scene and matching resolution does not save you. Check with `phi.utils.camera_align` first; if the FOV shifts, option 1 is the only correct path.
+
+### When to reach for it
+**Not for a baseline run.** It deviates from the ACT configuration the literature reports, and on an 80–141 GB GPU memory is not the constraint. There is also a specific reason to expect an accuracy cost: a token covers 32×32 px of *input* either way, so at 240×320 each token spans **64×64 px of original scene** — the overhead camera's spatial precision halves, which is exactly what a held-out-position eval measures.
+
+Reach for it when **wall-clock** binds — Explorer's `gpu` partition caps around 8 h, and 3.5× decides whether a run fits its window. Do it as a clean extra run at the best chunk size, after the baseline, and write it up as an ablation in [`experiments/`](../../experiments/).
+
 ## What `chunk_size` does and does not change
 
 Actions never enter the encoder, so the expensive part is **invariant**:
