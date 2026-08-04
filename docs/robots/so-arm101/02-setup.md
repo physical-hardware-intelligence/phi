@@ -136,11 +136,13 @@ RealSense uses `serial_number_or_name` instead of `index_or_path` (and `use_dept
 Our three-camera setup ([which cameras and why](01-hardware.md#what-this-lab-actually-runs)) — substitute your own indices:
 ```bash
 --robot.cameras="{ \
-  wrist:    {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30, fourcc: MJPG}, \
-  overview: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30, fourcc: MJPG}, \
-  side:     {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30, fourcc: MJPG} }"
+  wrist: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30, fourcc: MJPG}, \
+  front: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30, fourcc: MJPG}, \
+  top:   {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30, fourcc: MJPG} }"
 ```
-Name the keys deliberately: **these strings become the observation keys in the recorded dataset**, and a policy trained on `overview` will not find a camera you later rename to `front`.
+`wrist` = the gripper module · `front` = Brio 101 on the desk stand · `top` = C960 overhead on the boom.
+
+⚠️ **These three names are fixed. Do not improvise.** They become the observation keys in the dataset (`observation.images.top`, …), so a policy trained on `top` will not find a camera someone later calls `overview`, and renaming after collection orphans every episode you already have.
 
 ### 5c. Bandwidth: set `fourcc: MJPG`
 Not optional once you have more than one camera. Every camera and both arm boards are **USB 2.0** devices sharing one **480 Mbps** bus, of which UVC isochronous transfer can use roughly **80%, so ~384 Mbps**.

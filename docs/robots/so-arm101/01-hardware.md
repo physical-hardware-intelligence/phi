@@ -12,26 +12,30 @@ Canonical hardware source: **https://github.com/TheRobotStudio/SO-ARM100** (the 
 ## What's inside (two-arm setup, per the SO-ARM100 repo)
 - **Motors:** Feetech **STS3215** servos. Follower = 6× at 1/345 gearing; leader mixes ratios (base/shoulder-pan 1/191, shoulder-lift 1/345, elbow 1/191, wrist-flex/roll & gripper 1/147). Voltage variants: 7.4 V (~16.5 kg·cm) and 12 V (~30 kg·cm, needs a 12 V ≥5 A supply).
 - **2× motor control board**, USB-C cables, **2× power supply**, table clamps, screwdriver set.
+
+> 🚨 **The two power adapters are NOT interchangeable — one is 5 V, one is 12 V, and they look alike.** Swapping them does not merely underperform: the 5 V arm on 12 V trips over-voltage protection (a servo latches `Input voltage error!` and reads as a *missing* motor), and the 12 V arm on 5 V never enumerates at all. **Label each adapter with its arm the first time you unplug them.** Symptom-to-cause table: [troubleshooting](troubleshooting.md#-missing-motors-or-input-voltage-error--check-you-didnt-swap-the-two-power-adapters).
 - Repo BOM estimate: two-arm ≈ **$230**, single follower ≈ **$122** (region/time-dependent — verify before quoting).
 
 ## Cameras (needed for vision policies)
 
-At least one camera; two is better. A **wrist camera** (on the gripper) + a **front/overview camera** is the standard combo — the wrist view nails gripper/contact outcomes, the overview nails object/scene outcomes. Any UVC webcam works via OpenCV; Intel RealSense (D405/D435) is supported but **not required** (our policies are RGB-only). Wiring and config: [02-setup](02-setup.md).
+At least one camera; two is better; we run three. A **wrist** camera on the gripper nails contact and grasp outcomes, while a camera looking at the scene nails where the objects are — we use two of those, one **front** and one **top**. Any UVC webcam works via OpenCV; Intel RealSense (D405/D435) is supported but **not required** (our policies are RGB-only). Wiring and config: [02-setup](02-setup.md).
 
 ### What this lab actually runs
 
 Selected 2026-08-02. Three cameras, **three different models on purpose** — identical webcams collide on USB enumeration and crash `lerobot-record` mid-session (see [What actually matters when choosing](#what-actually-matters-when-choosing), item 4) — plus a powered hub.
 
-| Role | Device | The spec that mattered | Mount |
+| Name in configs | Device | The spec that mattered | Mount |
 |---|---|---|---|
-| **Wrist** | 32×32 mm USB module (bundled with the Kit Pro) | small enough to sit on the gripper | arm's own bracket |
-| **Overview** | **EMEET C960** | **90° dFOV**, fixed focus, **1/4″-20 thread**, 1080p30, USB-A | 3-section articulating boom arm, clamped to the table, camera overhead |
-| **Second view** | **Logitech Brio 101** | **58° dFOV**, fixed focus, 1080p30, USB-A | **AceTaken magnetic stand** (Logitech-foot specific) |
+| **`wrist`** | 32×32 mm USB module (bundled with the Kit Pro) | small enough to sit on the gripper | arm's own bracket |
+| **`front`** | **Logitech Brio 101** | **58° dFOV**, fixed focus, 1080p30, USB-A | **AceTaken magnetic stand** (Logitech-foot specific), on the table facing the workspace |
+| **`top`** | **EMEET C960** | **90° dFOV**, fixed focus, **1/4″-20 thread**, 1080p30, USB-A | 3-section articulating boom arm, clamped to the table, camera **overhead** |
 | **Power** | **Leinsis 7-port powered USB 3.0 hub** | **12 V / 2 A (24 W)**, per-port switch + LED | — |
+
+⚠️ **Use exactly these names — `wrist`, `front`, `top`.** They become the observation keys in every recorded dataset (`observation.images.top`, …), and a policy trained on `top` will not find a camera someone later calls `overview`. Renaming after data collection means the old episodes no longer match.
 
 **Why two different mounts, not two of the same.** This is the detail that wastes an afternoon if you get it wrong: **the C960 has a 1/4″-20 tripod thread and the Brio 101 does not.** The Brio uses Logitech's own mounting foot, which is why the AceTaken magnetic stand is Logitech-specific. So the threaded camera goes on the boom arm and the Logitech goes on the magnetic stand. Check the fit of *your* camera against *your* mount before ordering — "webcam stand" is not a standard.
 
-**Why the C960 is the overview camera** — field of view, which is the one spec that actually differs between them. Horizontal coverage at distance `d` is `W = 2·d·tan(hFOV/2)`, and for a 16:9 sensor `tan(hFOV/2) ≈ 0.872 · tan(dFOV/2)`:
+**Why the C960 goes on top and not the front** — field of view, the one spec that actually differs between them. The overhead camera has to cover the whole bin layout at once, so it gets the wider lens. Horizontal coverage at distance `d` is `W = 2·d·tan(hFOV/2)`, and for a 16:9 sensor `tan(hFOV/2) ≈ 0.872 · tan(dFOV/2)`:
 
 | Camera | dFOV | ≈ hFOV | Visible width at 60 cm |
 |---|---|---|---|
@@ -94,7 +98,9 @@ And macOS does **not** expose UVC controls system-wide — Logitech's own softwa
 **The free mitigation, and do this regardless: fix the lighting.** If the room's light doesn't change, auto-exposure has nothing to drift toward. Record and evaluate under the same lamp, at the same time of day, blinds shut. That costs nothing and removes most of the risk.
 
 ### Placement
-For an overview camera, **front-high angled down** beats front-and-side: less occlusion during the grasp, and a top-down component reveals **gripper position relative to object centre**. Tape/mark the mount so it is identical between data collection and evaluation — a camera that moves between recording and eval invalidates the policy.
+A **top-down component is what you are really buying** in a scene camera: it reveals gripper position relative to object centre, which a purely head-on view cannot. That is why our wide camera goes overhead (`top`) and the narrower one sits head-on (`front`) — between them you get object layout and approach depth, with less occlusion during the grasp than a side view gives.
+
+**Tape or mark both mounts** so they are identical between data collection and evaluation. A camera that moves between recording and eval invalidates the policy, and the magnetic stand is the one to watch for creep.
 
 ## ⚠️ Safety (read before powering on)
 - **Clear the workspace** of hands and fragile objects before teleop or a policy rollout — a trained policy can move unexpectedly.

@@ -8,8 +8,38 @@ Our growing corpus of "things that bit us." Add yours (PR or `good-first-issue`)
 - **CH340-based board on macOS:** may need a USB-serial driver; most boards enumerate natively as `usbmodem`.
 
 ## Motors
+
+### 🚨 Missing motors, or `Input voltage error!` → check you didn't swap the two power adapters
+**The leader and follower ship with DIFFERENT adapters — one 5 V, one 12 V — and they look alike.** Unplug both and it is very easy to put them back on the wrong arms. This cost us an afternoon on 2026-08-03 and briefly looked like a dead servo. **Label them.**
+
+Each mistake has its own signature, so the symptom tells you which arm got which:
+
+| What you see | What it means |
+|---|---|
+| `Missing motor IDs: 2` **and** the scan logs `{2: '[RxPacketError] Input voltage error!'}` | **Over-voltage.** This arm is on the 12 V adapter but wants 5 V. The servo answered — it reported a fault, then latched and stopped responding to normal pings, so LeRobot calls it "missing". |
+| `scan_port` returns **`{}`** — nothing at all, at any baud rate | **Under-voltage.** This arm is on the 5 V adapter but wants 12 V. The motors never come up, so nothing enumerates. |
+
+**A motor that reports an error is not a dead motor.** Dead servos do not reply. Read the scan's stderr before concluding anything — the `[RxPacketError]` line is the whole diagnosis and it is easy to miss above the progress bar.
+
+Fix: put the right adapter on each arm, **power-cycle** (a latched voltage error only clears on power cycle), then re-scan.
+
+```bash
+source configs/ports.local.sh
+python -c "
+from lerobot.motors.feetech import FeetechMotorsBus
+import os; r = FeetechMotorsBus.scan_port(os.environ['LEADER_PORT'])
+for b, ids in r.items(): print('baud', b, 'found', sorted(ids), 'MISSING', sorted(set([1,2,3,4,5,6]) - set(ids)) or 'none')
+" 2>&1 | grep -v "it/s\]"
+```
+
+Reference healthy readings on the **12 V** arm: **11.8–12.0 V on all six**, spread ≤0.2 V, ~32–33 °C idle, load 0. A large spread would mean a genuine voltage drop down the daisy chain; a uniform reading with one motor erroring does not.
+
+⚠️ Note the headroom problem behind this: the servos ship with `Max_Voltage_Limit = 120` (**12.0 V**) while the 12 V supply reads 11.8–12.0 V. There is **no margin by design**, which is why the wrong adapter trips protection instantly rather than merely running warm. Per-motor voltage/temperature/load script: [02-setup §2b](02-setup.md#2b-verify-the-motors-first-do-this-on-the-assembled-arm-too).
+
+### Other motor issues
 - **A motor won't take its id:** connect only that one when prompted; check the Waveshare jumpers are on channel **B (USB)**; verify the power supply.
 - **Motor hot / stalled:** cut power — don't leave a stalled STS3215 energized. May need Feetech firmware update (LeRobot docs: `feetech`).
+- **A genuinely dead servo** looks different: no reply at all to `scan_port` for that id, often with a **blinking red LED** while the others are steady. That is what got our first leader arm returned (also id 2 — do not confuse the two cases).
 
 ## Calibration / teleop
 - **Follower doesn't mirror well:** re-calibrate; make sure you reused the same `--robot.id` / `--teleop.id` you calibrated with.
