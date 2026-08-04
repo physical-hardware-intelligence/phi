@@ -38,6 +38,8 @@ module load anaconda3/2024.06
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$PROJECT/envs/lerobot"
 
+source "$PROJECT/repo/configs/hpc/_preflight.sh"
+
 echo "node=$(hostname) date=$(date)"
 echo "HF_LEROBOT_HOME=$HF_LEROBOT_HOME"
 

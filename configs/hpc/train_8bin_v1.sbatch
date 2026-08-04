@@ -84,6 +84,8 @@ module load anaconda3/2024.06
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$PROJECT/envs/lerobot"
 
+source "$PROJECT/repo/configs/hpc/_preflight.sh"
+
 # 89 training episodes = 6 bins. Post-deletion indices (original ep 18 is gone,
 # everything after it shifted down by one). DO NOT re-derive from 0..119.
 # Built with python, not `seq -s,` — BSD seq appends a TRAILING separator and

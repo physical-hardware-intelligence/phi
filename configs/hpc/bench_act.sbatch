@@ -39,6 +39,8 @@ module load anaconda3/2024.06
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$PROJECT/envs/lerobot"
 
+source "$PROJECT/repo/configs/hpc/_preflight.sh"
+
 echo "=== node/GPU ==="
 hostname
 nvidia-smi --query-gpu=name,memory.total,driver_version,compute_cap --format=csv

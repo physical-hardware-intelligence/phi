@@ -86,6 +86,12 @@ fi
 
 conda activate "$PREFIX"
 
+# Reset mtime/atime across the tree. Conda extraction preserves upstream
+# timestamps, so a freshly built env can contain files that look years old to an
+# age-based cleanup sweep. Cheap insurance; see configs/hpc/_preflight.sh.
+find "$PREFIX" -exec touch -a -m {} + 2>/dev/null
+echo "touched $(find "$PREFIX" -type f | wc -l) files to reset mtime/atime"
+
 echo "=== what we got ==="
 python -c "import sys; print('python', sys.version.split()[0])"
 python -c "import torch; print('torch', torch.__version__, '| cuda build', torch.version.cuda)"
