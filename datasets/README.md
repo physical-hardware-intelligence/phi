@@ -6,4 +6,4 @@ Card = a `<slug>.md` with: HF id · robot · task string · #episodes · cameras
 
 | Dataset (HF id) | Task | #ep | Cameras | Collected by | Notes |
 |---|---|---|---|---|---|
-| _(first one lands in Phase 1)_ | | | | | |
+| [`BrutalCaesar/phi_so101_8bin_v1`](phi_so101_8bin_v1.md) | pick up the duck and place it in the box | 119 | wrist + front + top, 640×480 | Yash / Parv / Sai · 2026-08-03 | 🚨 **`wrist` and `top` keys hold each other's footage** · 8 bins, 2 held out for OOD eval (89 train / 30 eval) |
