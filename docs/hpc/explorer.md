@@ -27,10 +27,19 @@ Home is capped at **76 GB** (69.9 used) — too small for a 6.7 GB env plus cach
 
 ```bash
 #SBATCH --gres=gpu:1
-#SBATCH --exclude=d1025
+#SBATCH --exclude=d1025,c2204,c2205,c2206,c2207
 ```
 
-That stays eligible for h200 **and** a100 **and** both v100s — SLURM starts you on whichever frees first. Size the batch for 32 GB and it runs anywhere.
+That stays eligible for h200 **and** a100 **and** the sxm2 v100s — SLURM starts you on whichever frees first. Size the batch for 32 GB and it runs anywhere.
+
+**But DO exclude by host CPU.** `c2204–c2207` are the `zen,prod` nodes: **AMD EPYC 7351** (Zen 1, 2017) capped at **2.4 GHz**, against Intel Skylake at 3.7 GHz elsewhere. Measured on identical ACT work, same batch, same chunk:
+
+| Node | Host CPU | `updt_s` | `smpl/s` |
+|---|---|---|---|
+| d1011 | Xeon Gold 6132 | 0.570 | 55 |
+| c2207 | EPYC 7351 | **1.712** | **17** |
+
+**A 3× penalty, and the GPU is not the cause** — it drew 76 W of 250 W at 1365/1380 MHz on PCIe x16 while the node was otherwise *empty* (d1011 was simultaneously shared with three other users' jobs and still won). ACT is **kernel-launch bound** at these tensor sizes: thousands of small ops per step, so host single-thread speed sets `updt_s`. At 1.86 s/step a 34k-step run needs 17.5 h and the 8 h wall kills it at ~45%. The A100 nodes are `zen2`, which is fine — **only Zen 1 is the problem.**
 
 ## 🚨 The five traps
 

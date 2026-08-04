@@ -23,7 +23,7 @@
 #SBATCH --job-name=phi-act-8bin
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --exclude=d1025
+#SBATCH --exclude=d1025,c2204,c2205,c2206,c2207
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=08:00:00
@@ -50,6 +50,15 @@ REPO_ID=BrutalCaesar/phi_so101_8bin_v1
 # 2.5 h of the 8 h wall as slack. Above LeRobot's own default (100k steps at
 # batch 8 = 14.6 epochs here). Under-shooting is cheap (--resume from `last`);
 # over-running the wall loses the whole run. See docs/hpc/explorer.md.
+#
+# EXCLUSIONS (see #SBATCH above): d1025 is the only sub-32GB node (t4), and
+# c2204-c2207 are the Zen-1 nodes (AMD EPYC 7351, 2.4 GHz max) whose HOST CPU is
+# the bottleneck. Measured 2026-08-04 on identical work: updt_s 1.712 vs 0.570 and
+# 17 vs 55 smpl/s against an Intel Skylake node — a 3x penalty — with the GPU
+# drawing only 76 W of 250 W at 1365/1380 MHz and PCIe x16, i.e. NOT the GPU.
+# ACT is kernel-launch bound at these tensor sizes, so host single-thread speed
+# sets updt_s. At 1.86 s/step a 34k-step run needs 17.5 h and the 8 h wall would
+# kill it at ~45%. The A100 nodes are Zen 2 and are fine; only Zen 1 is excluded.
 BATCH_SIZE=${BATCH_SIZE:-32}
 STEPS=${STEPS:-34000}
 SAVE_FREQ=${SAVE_FREQ:-5000}
