@@ -44,42 +44,73 @@ ResNet18 output stride = 32        3×480×640 → 512×15×20
 
 At 224×224 the same 2-camera setup gives `7×7=49` per camera → **100 tokens, 6× shorter**.
 
-## Where the memory actually goes
+## Why the backbone is in memory at all
 
-Per camera, batch 8, fp32:
+The backbone is **pretrained, not frozen** — a distinction worth being clear about, because it is the reason activations cost anything.
 
-| Stage | Shape per sample | @ B=8 |
-|---|---|---|
-| input | `(3, 480, 640)` | 29.5 MB |
-| **conv1** | `(64, 240, 320)` | **157.3 MB** |
-| bn1 | `(64, 240, 320)` | 157.3 MB |
-| relu | `(64, 240, 320)` | 157.3 MB |
-| maxpool | `(64, 120, 160)` | 39.3 MB |
-| layer1 | `(64, 120, 160)` | 39.3 MB |
-| layer2 | `(128, 60, 80)` | 19.7 MB |
-| layer3 | `(256, 30, 40)` | 9.8 MB |
-| layer4 | `(512, 15, 20)` | 4.9 MB |
+ACT initializes from `ResNet18_Weights.IMAGENET1K_V1` and then **fine-tunes all of it**:
 
-**`conv1 + bn1 + relu` = 472 MB, ~81% of the 585 MB per-camera total.** Two cameras = 1,170 MB, versus **371 MB** for all four encoder attention matrices combined.
+```
+backbone params      : 11,166,912
+  requires_grad=True : 11,166,912
+  requires_grad=False: 0
+optimizer groups     : 2 -> [40,404,678 main] + [11,166,912 backbone @ optimizer_lr_backbone=1e-5]
+```
 
-⚠️ **So the ResNet stem, not attention, is what fills the GPU.** `conv1` holds 32× the activation memory of `layer4` — it is still at half resolution with 64 channels. The 602 is the memorable number; the stem is the expensive one. Resizing inputs helps mostly by shrinking the stem.
+Gradients flow through every convolution, so autograd must retain each layer's activations for the backward pass. ImageNet features classify objects; manipulation needs precise spatial localization of *your* object in *your* lighting, so the low-LR fine-tune is deliberate.
 
-`conv1` is `Conv2d(3, 64, 7×7, stride 2, pad 3)`, 9,408 params. It lifts RGB to 64 channels, takes the first 2× downsample, and uses a wide 7×7 receptive field to grab edges and colour gradients cheaply before the residual blocks. Its BatchNorm is **frozen** (`FrozenBatchNorm2d`) so small training batches don't inject noise through BN statistics.
+**What is frozen is the BatchNorm.** 20 `FrozenBatchNorm2d` modules, whose `weight`/`bias` are registered **buffers, not Parameters** — normalization statistics stay fixed so small training batches can't destabilize them. The DETR recipe.
+
+`conv1` is `Conv2d(3, 64, 7×7, stride 2, pad 3)`, 9,408 params: lifts RGB to 64 channels, takes the first 2× downsample, and uses a wide receptive field to grab edges and colour gradients cheaply before the residual blocks.
+
+Freezing the backbone (`requires_grad_(False)`) measures at **5.118 → 3.731 GB at batch 8, a 27% saving** — only 0.13 GB of which is freed optimizer state; the rest is activations no longer needed. A frozen backbone would also let you **precompute features once** and skip the ResNet during training entirely. That is exactly [Patch Policy](../training/README.md)'s design with a frozen DINOv2 — a real experiment to run, but a deviation from the ACT baseline, so not something to do to a baseline run.
+
+## Where the backbone memory goes
+
+Measured by hooking **all 59 leaf modules** and summing `out.numel() × batch × 4 bytes`. Per camera, batch 8, fp32:
+
+| Group | Tensors at | MB @ B=8 | Share |
+|---|---|---|---|
+| conv1 | 240×320 | 157.3 | 10.7% |
+| bn1 | 240×320 | 157.3 | 10.7% |
+| relu | 240×320 | 157.3 | 10.7% |
+| maxpool | 120×160 | 39.3 | 2.7% |
+| **layer1** | 120×160 | **471.9** | **32.2%** |
+| layer2 | 60×80 | 275.3 | 18.8% |
+| layer3 | 30×40 | 137.6 | 9.4% |
+| layer4 | 15×20 | 68.8 | 4.7% |
+
+**Resolution dominates, not any single layer.** Everything at ≥120×160 — the stem plus `layer1` — is **67%** of backbone activations; `layer3 + layer4` together are 14%. `layer1` alone beats the entire stem because it runs 8 more tensors at 120×160 (each `BasicBlock` is conv→bn→relu→conv→bn→relu). This is why *resizing inputs* is the lever, not swapping the backbone.
+
+Compare with attention: all four encoder attention matrices at B=8 total **371 MB**, against 2,929 MB of backbone leaf activations for 2 cameras. **The convolutional frontend, not the 602-token attention, is what fills the GPU.**
+
+> ⚠️ **That 2,929 MB is an upper bound.** torchvision's ResNet uses `nn.ReLU(inplace=True)`, so ReLU outputs overwrite their input and cost nothing extra, and conv/BN pairs share buffers. The measured saving from freezing the backbone is 1,387 MB at B=8 — roughly half the naive sum. Treat the per-tensor table as *where* memory goes, and the measured deltas below as *how much*.
 
 ## Measured VRAM, and how to pick a batch size
 
-Fitted from batch 1/2/4 (MPS, fp32, 2 cameras):
+Measured **one batch size per process** — this matters, see the warning below. MPS, fp32, 2 cameras, chunk 50:
+
+| Batch | GB | Marginal per sample |
+|---|---|---|
+| 1 | 1.469 | — |
+| 2 | 1.701 | 0.232 |
+| 4 | 2.695 | 0.497 |
+| 8 | 5.118 | 0.606 |
+
+Strongly nonlinear at small batch, where fixed cost dominates. Fitting B = 2, 4, 8:
 
 ```
-≈ 1.04 GB fixed + 0.428 GB per sample
+≈ 0.49 GB fixed + 0.575 GB per sample
 ```
 
 | GPU | max batch @ 90% VRAM |
 |---|---|
-| 24 GB | **~47** |
-| A100 40 GB | ~81 |
-| A100 80 GB | ~165 |
-| H200 141 GB | ~293 |
+| 24 GB | **~36** |
+| A100 40 GB | ~61 |
+| A100 80 GB | ~124 |
+| H200 141 GB | ~219 |
+
+> 🚨 **Do not measure several batch sizes in one process.** `torch.mps.driver_allocated_memory()` (and CUDA's `memory_allocated`) report a **monotonic high-water mark**, so the second reading inherits the first's cached blocks. An earlier version of this page reported `1.04 GB + 0.428 GB/sample` and a 24 GB ceiling of ~47 for exactly this reason. **One process per data point.**
 
 > ⚠️ **This is an MPS fp32 extrapolation, not a CUDA measurement.** CUDA's allocator, cuDNN workspaces and bf16/AMP all shift it. Use it to size `--mem` and a first `--batch_size`, then confirm with one short run on the real GPU.
 
