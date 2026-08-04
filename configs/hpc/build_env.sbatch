@@ -78,9 +78,23 @@ PY
 echo "--- .condarc in effect ---"; cat "$HOME/.condarc"; echo "-------------------------"
 
 # ---- create the env from the repo's yml (-p overrides the yml's `name:`)
-if [ -d "$PREFIX" ]; then
-  echo "env already exists at $PREFIX — reusing. Delete it to rebuild from scratch."
+#
+# 🚨 "Does the directory exist" is NOT "is the env usable". A failed
+# `conda env create` leaves a skeleton behind (just conda-meta/ and etc/), and a
+# /scratch ESTALE event can gut a working env while leaving the tree in place.
+# Both cases previously made this job SKIP the build and exit 0 — it reported
+# python 3.9.18 (the base anaconda interpreter leaking through a broken activate)
+# and wrote a 0-package lock file. Health-check by importing, never by ls.
+if [ -x "$PREFIX/bin/python" ] && "$PREFIX/bin/python" -c "import encodings, ssl" 2>/dev/null; then
+  echo "env at $PREFIX is present and its stdlib imports — reusing."
 else
+  if [ -d "$PREFIX" ]; then
+    BROKEN="$PREFIX.broken.$(date +%H%M%S)"
+    echo "env at $PREFIX exists but is NOT usable -> moving aside to $BROKEN"
+    # rename, never rm: a plain rm -rf of a multi-GB tree on this filesystem can
+    # outlast the job and ESTALE makes it fail partway, leaving a worse mess.
+    mv "$PREFIX" "$BROKEN" || { echo "FATAL: could not move the broken env aside"; exit 1; }
+  fi
   conda env create -p "$PREFIX" -f "$YML" || { echo "FATAL: conda env create failed"; exit 1; }
 fi
 
@@ -93,15 +107,29 @@ find "$PREFIX" -exec touch -a -m {} + 2>/dev/null
 echo "touched $(find "$PREFIX" -type f | wc -l) files to reset mtime/atime"
 
 echo "=== what we got ==="
-python -c "import sys; print('python', sys.version.split()[0])"
-python -c "import torch; print('torch', torch.__version__, '| cuda build', torch.version.cuda)"
-python -c "import lerobot; print('lerobot', lerobot.__version__ if hasattr(lerobot,'__version__') else 'installed')"
-python -c "from lerobot.policies.act.modeling_act import ACTPolicy; print('ACT import OK')"
-python -c "import accelerate; print('accelerate', accelerate.__version__, '(the `training` extra — lerobot-train hard-requires it)')"
+# 🚨 The interpreter MUST be the one inside $PREFIX. When activation half-fails,
+# `python` silently resolves to the base anaconda 3.9 and every check below
+# "passes" against the wrong environment. Assert the path first.
+ACTUAL=$(python -c "import sys; print(sys.executable)" 2>/dev/null)
+if [ "$ACTUAL" != "$PREFIX/bin/python" ]; then
+  echo "FATAL: python resolved to '$ACTUAL', expected '$PREFIX/bin/python'."
+  echo "       conda activate did not take. Refusing to report success."
+  exit 1
+fi
+
+# Same guard the consumer jobs use, so a build can never be declared good while
+# prefetch/bench/train would reject the env three seconds in.
+source "$PROJECT/repo/configs/hpc/_preflight.sh"
+
 which lerobot-train lerobot-dataset-viz 2>/dev/null
 
 echo "=== pinning what we actually resolved, for reproducibility ==="
 pip freeze > "$PROJECT/envs/lerobot.requirements.lock.txt"
-echo "wrote $PROJECT/envs/lerobot.requirements.lock.txt ($(wc -l < "$PROJECT/envs/lerobot.requirements.lock.txt") pkgs)"
+NPKG=$(wc -l < "$PROJECT/envs/lerobot.requirements.lock.txt")
+echo "wrote $PROJECT/envs/lerobot.requirements.lock.txt ($NPKG pkgs)"
+# a real build resolves ~118 packages; single digits means we locked an empty env
+if [ "$NPKG" -lt 50 ]; then
+  echo "FATAL: only $NPKG packages in the lock file — this env is not complete."; exit 1
+fi
 
-echo "DONE $(date).  Next: sbatch configs/hpc/verify_env.sbatch"
+echo "DONE $(date).  Next: sbatch configs/hpc/prefetch_dataset.sbatch"
