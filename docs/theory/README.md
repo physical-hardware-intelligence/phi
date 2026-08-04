@@ -35,6 +35,7 @@ Turn continuous actions into discrete "words" from a learned codebook, then lang
 ## Imitation learning & action chunking (ACT)
 Copy expert demos, but predict a **chunk** of future actions at once to avoid compounding error.
 - ACT paper: https://arxiv.org/abs/2304.13705
+- **[ACT, shape by shape](act-shapes.md)** — every tensor from dataloader to action, traced from the installed lerobot. Read this before choosing a batch size: it shows why 2 cameras at 640×480 give 602 encoder tokens, and why the ResNet stem (not attention) is what fills the GPU.
 
 ## Generative action heads (Diffusion Policy · flow matching)
 Instead of regressing one action, **generate** an action trajectory from noise — captures the "many valid ways" (multimodality) of a task.

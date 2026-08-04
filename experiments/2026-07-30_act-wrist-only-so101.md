@@ -206,7 +206,7 @@ If replay fails, the data is bad. Fix before training.
 ## 5. Phase 3 — Train
 
 ### 5.1 ACT defaults (verified in the installed lerobot 0.6.0)
-Do **not** change these for the baseline; they're the paper's configuration.
+Do **not** change these for the baseline; they're the paper's configuration. What each of these does to the tensor shapes, and how they set your VRAM ceiling: [ACT, shape by shape](../docs/theory/act-shapes.md).
 
 | Param | Default | Note |
 |---|---|---|

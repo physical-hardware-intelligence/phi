@@ -47,3 +47,5 @@ Cloud (HF Jobs): add `--job.target=a10g-small` (list flavors: `hf jobs hardware`
 
 ## Theory
 Why these architectures work (flow matching, VLAs, RL fine-tuning) → [theory](../theory/README.md).
+
+**Before you pick `--batch_size` for ACT**, read [ACT, shape by shape](../theory/act-shapes.md) — measured tensor shapes, the token-count arithmetic (`300 × cameras + 2` at 640×480), where the VRAM actually goes, and why `chunk_size` is nearly free while adding a camera is not.
