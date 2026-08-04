@@ -201,6 +201,26 @@ Actions never enter the encoder, so the expensive part is **invariant**:
 
 **The VAE branch is training-only.** At inference `latent_sample` is **zeros**, so the CVAE never samples at test time — it exists purely to absorb demonstrator multimodality during training. Four of the nine transformer layers do not run on the robot.
 
+### `kld_loss` is supposed to be ~0. Don't treat it as a bug.
+
+```python
+mean_kld = (-0.5 * (1 + log_sigma_x2 - mu**2 - log_sigma_x2.exp())).sum(-1).mean()
+loss = l1_loss + mean_kld * 10.0        # kl_weight = 10.0
+```
+
+It measures how far the encoder's 32-d latent distribution sits from N(0, I). A near-zero value means the latent carries almost no information — **posterior collapse** — and for ACT that is the **healthy** state, for one reason: the latent is `zeros` at inference and is never sampled. So
+
+- **high KLD would be the problem**: the decoder would be leaning on information extracted from the *ground-truth future actions*, which does not exist at rollout. Train loss looks great, the robot underperforms.
+- **low KLD means train and test conditions match** — the decoder predicts from observations alone.
+
+Two structural reasons it collapses: `kl_weight=10.0` is a deliberately heavy penalty, and consistent demonstrations (one operator, one approach style, marked positions) leave little multimodality for the latent to encode. A collapsed latent is evidence the collection was disciplined.
+
+Rough scale — the KL is **summed over 32 dims**, so read the total: `<0.01` full collapse · `0.01–0.5` a trace of signal · `1–5` genuinely encoding variation · `>10` dominating the loss at ×10 weight, and worth investigating.
+
+`kld_loss` and `l1_loss` reach **W&B only** (via `output_dict`); the console `loss:` is the combined figure. With kld ≈ 0 that console number is effectively pure L1 in normalised action units.
+
+⚠️ **The one real cost.** Genuine multimodality in the data cannot be represented at test time. If a near-identical observation maps to two valid behaviours — e.g. leading dead time, where a still frame precedes both "wait" and "start reaching" — the policy must emit the **average** of them, which shows up as a hesitant or sluggish start rather than a grasp failure. That is a data problem to fix at collection, not a hyperparameter to tune.
+
 ## Reproduce it
 
 ```python
