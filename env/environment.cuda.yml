@@ -11,7 +11,17 @@ dependencies:
   - ffmpeg
   - pip
   - pip:
-      # Install a CUDA-matched PyTorch first per your driver, then:
+      # 🚨 PIN THE CUDA VARIANT. Plain `pip install lerobot` resolves torch from
+      # PyPI, which now ships a **cu130** build — and it is unusable on Explorer:
+      # the GPU nodes run driver 545.23.08 (CUDA 12.3), so CUDA 13 fails with
+      # "driver is too old (found version 12030)", cuda.is_available()==False,
+      # arch list empty. Measured 2026-08-03, see experiments/ notes.
+      # cu126 works on 545 (CUDA minor-version compatibility) AND on any newer
+      # driver, so it is correct on every node type. Same torch/vision/codec
+      # VERSIONS as the cu130 resolution, so torchcodec's ABI match is preserved.
+      - --extra-index-url https://download.pytorch.org/whl/cu126
+      - "torch==2.11.0"
+      - "torchvision==0.26.0"
       # Pin to the SAME LeRobot version as the Mac cockpit (verified 0.6.0, 2026-07-27) for reproducibility.
       - "lerobot[training,feetech,core_scripts]==0.6.0"
       # policy extras as needed:

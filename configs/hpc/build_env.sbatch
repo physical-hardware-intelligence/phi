@@ -42,6 +42,11 @@ if [ ! -f "$YML" ]; then
 fi
 
 # ---- proxy: compute nodes have no direct route out. pip needs this explicitly.
+# 🚨 A stale torch in ~/.local/lib/python3.12/site-packages shadows the conda env
+# (Python puts user-site ahead of it) and dies with `libnvJitLink.so.12: cannot
+# open shared object file`. Every Φ job on Explorer must set this.
+export PYTHONNOUSERSITE=1
+
 export http_proxy=http://10.99.0.130:3128
 export https_proxy=http://10.99.0.130:3128
 export HF_HOME=$PROJECT/hf
