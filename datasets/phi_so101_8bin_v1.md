@@ -17,6 +17,8 @@
 
 Verified with `python -m phi.utils.verify_dataset <root> --split 59`: metadata agrees with data, indices contiguous, every referenced video shard present, `stats.json` complete.
 
+**Loads as** `LeRobotDataset("BrutalCaesar/phi_so101_8bin_v1")` — resolves the `v3.0` tag (added 2026-08-03; see [issue 7](#known-issues)). If you push anything to this repo, **re-point that tag**, or every loader keeps fetching the pre-push snapshot: [03-teleop-and-data §3c](../docs/robots/so-arm101/03-teleop-and-data.md#-after-hf-upload-you-must-create-the-version-tag-yourself).
+
 ---
 
 ## 🚨 The camera keys are mislabelled. Read this before you train.
@@ -126,6 +128,7 @@ Augmentation on/off is the one axis here that is **cheap to confound**. Vary it 
 4. **One episode deleted** (original 18), so left bin 2 has 14 episodes rather than 15. Slight imbalance in the factorial design.
 5. **No per-episode task labels.** All 119 share one instruction string, so the 3 boxes are not distinguishable from metadata. Fine for ACT; a limitation for any language-conditioned VLA later.
 6. A `phi_so101_8bin_v1_20260803_150735_old/` backup (pre-deletion, 120 episodes, 1.2 GB) exists locally. Safe to delete now that the upload is verified.
+7. **RESOLVED 2026-08-03 — no `v3.0` tag on the Hub repo.** Because the dataset was pushed with `hf upload` rather than LeRobot's `push_to_hub`, the codebase-version tag was never created, and every `LeRobotDataset(...)` call failed with `RevisionNotFoundError` before downloading a byte. Tag created, load verified. Anyone who hit it can simply retry — nothing to clean up.
 
 ## Reproducing / extending
 

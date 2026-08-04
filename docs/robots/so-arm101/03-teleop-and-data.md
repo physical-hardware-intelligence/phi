@@ -169,6 +169,31 @@ python -c "from huggingface_hub import HfApi; i=HfApi().dataset_info('${HF_USER}
 print(i.id, 'private=',i.private, len(i.siblings),'files')"
 ```
 
+### 🚨 After `hf upload` you must create the version tag yourself
+Uploading the files is **not enough** — a teammate calling `LeRobotDataset("<user>/<name>")` will get:
+```
+huggingface_hub.errors.RevisionNotFoundError: Your dataset must be tagged with a codebase version.
+```
+`LeRobotDataset` does not load from `main`. It reads `codebase_version` out of `meta/info.json` (`v3.0`) and resolves **a git tag of that exact name**. `hf upload` only pushes files to `main`; the tag is created by LeRobot's own `push_to_hub(tag_version=True)`, which you skipped by uploading manually. So add it once:
+```bash
+python -c "from huggingface_hub import HfApi; \
+HfApi().create_tag('${HF_USER}/phi_so101_8bin_v1', tag='v3.0', repo_type='dataset')"
+```
+Then verify the tag resolves — this downloads `meta/` only, so it is cheap:
+```bash
+python -c "from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata as M; \
+m=M('${HF_USER}/phi_so101_8bin_v1', root='/tmp/_tagcheck'); \
+print(m.revision, m.total_episodes, m.total_frames, m.camera_keys)"
+```
+Read the tag name from your own `info.json` rather than hardcoding `v3.0` — it tracks the LeRobot format, not your dataset.
+
+⚠️ **A tag pins one commit.** Push anything afterwards (a README, a re-encoded video) and loaders still fetch the *old* snapshot, because the tag never moved. Re-point it after any change to repo contents:
+```bash
+python -c "from huggingface_hub import HfApi; a=HfApi(); r='${HF_USER}/phi_so101_8bin_v1'; \
+a.delete_tag(r, tag='v3.0', repo_type='dataset'); a.create_tag(r, tag='v3.0', repo_type='dataset')"
+```
+This is also why a collaborator who hit the error before the tag existed does **not** need to clear any cache: nothing was downloaded, the exception is raised during revision lookup, before the first file transfer.
+
 ## 4. Replay (verify the arm reproduces an episode)
 ```bash
 lerobot-replay \
