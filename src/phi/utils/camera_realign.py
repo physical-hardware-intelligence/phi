@@ -5,8 +5,12 @@ it is. Logs three views per camera: the live feed, the recorded reference frame,
 and a 50/50 blend — the blend is the one to watch, because misalignment shows up
 as ghosting and disappears when you have it right.
 
-    python -m phi.utils.camera_realign front=1 top=2
-    python -m phi.utils.camera_realign front=1 --episode 0 --frame 0
+    python -m phi.utils.camera_realign --play --episode 0        # watch the episode, no cameras
+    python -m phi.utils.camera_realign wrist=1 top=2 front=3     # live vs recorded vs blend
+    python -m phi.utils.camera_realign front=3 --frame 100       # pick the reference frame
+
+Do it in that order: play the episode first to pick a frame worth aligning
+against, then bring the live feed up next to it.
 
 🚨 WHY THIS EXISTS: a camera that moved between recording and evaluation silently
 invalidates the policy. Six ACT models were trained on phi_so101_8bin_v1's exact
@@ -26,6 +30,12 @@ DIFFERENT numbering from OpenCV's, which is what this script and
 not by trusting the number ffmpeg printed.
 
 macOS needs Camera permission; run from an interactive terminal and accept it.
+
+Harmless noise you will see on macOS: `objc[...]: Class AVFFrameReceiver is
+implemented in both .../cv2/.dylibs/libavdevice... and .../av/.dylibs/...`.
+cv2 and pyav each vendor their own libavdevice (and Homebrew ffmpeg is a third).
+Ignore it — capture works. Do not "fix" it by deleting a dylib; pyav is what
+decodes the dataset videos (`--dataset.video_backend=pyav`).
 """
 
 from __future__ import annotations
@@ -60,8 +70,8 @@ def parse_feed(token: str) -> tuple[str, int]:
     return name, int(idx)
 
 
-def reference_frames(names: list[str], root: str, episode: int, frame: int) -> dict[str, np.ndarray]:
-    """Pull one recorded frame per camera, as uint8 RGB (H, W, 3)."""
+def load_episode(root: str, episode: int):
+    """Open the local dataset, restricted to one episode."""
     import os
 
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -70,10 +80,11 @@ def reference_frames(names: list[str], root: str, episode: int, frame: int) -> d
     if not os.path.isdir(root):
         raise SystemExit(f"no dataset at {root}\n(pass --root; note the local dir carries the "
                          f"recording timestamp, so it is NOT the repo_id path)")
-    ds = LeRobotDataset(REPO_ID, root=root, episodes=[episode])
-    if frame >= len(ds):
-        raise SystemExit(f"episode {episode} has {len(ds)} frames; --frame {frame} is out of range")
-    item = ds[frame]
+    return LeRobotDataset(REPO_ID, root=root, episodes=[episode])
+
+
+def frame_images(item, names: list[str]) -> dict[str, np.ndarray]:
+    """One dataset item -> {physical name: uint8 RGB (H, W, 3)}, keys un-swapped."""
     out = {}
     for n in names:
         key = PHYSICAL_TO_KEY[n]
@@ -84,9 +95,47 @@ def reference_frames(names: list[str], root: str, episode: int, frame: int) -> d
     return out
 
 
+def reference_frames(names: list[str], root: str, episode: int, frame: int) -> dict[str, np.ndarray]:
+    """Pull one recorded frame per camera, as uint8 RGB (H, W, 3)."""
+    ds = load_episode(root, episode)
+    if frame >= len(ds):
+        raise SystemExit(f"episode {episode} has {len(ds)} frames; --frame {frame} is out of range")
+    return frame_images(ds[frame], names)
+
+
+def play_episode(names: list[str], root: str, episode: int, stride: int) -> int:
+    """Log a whole episode to a rerun timeline so you can scrub and play it.
+
+    No cameras touched. Use this first, to pick the frame you want to align
+    against — then re-run in live mode with `--frame <that number>`.
+    """
+    import rerun as rr
+
+    ds = load_episode(root, episode)
+    n_frames = len(ds)
+    idxs = range(0, n_frames, stride)
+    print(f"episode {episode}: {n_frames} frames, logging every {stride} -> {len(list(idxs))} frames")
+    print("(video decode is ~20 ms/frame/camera, so this is not instant)")
+
+    rr.init("phi-episode", spawn=True)
+    for i in idxs:
+        imgs = frame_images(ds[i], names)
+        rr.set_time("frame", sequence=i)
+        for name, img in imgs.items():
+            rr.log(f"{name}/recorded", rr.Image(img))
+        if i % (stride * 25) == 0:
+            print(f"  {i}/{n_frames}")
+    print("\ndone. Press play in the rerun viewer, or drag the timeline.")
+    print("Note the frame number you want, then run live mode with --frame <n>.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("feeds", nargs="+", help="PHYSICAL name=index, e.g. front=1 top=2")
+    ap.add_argument("feeds", nargs="*", help="PHYSICAL name=index, e.g. front=3 top=2")
+    ap.add_argument("--play", action="store_true",
+                    help="just play the recorded episode in rerun; no cameras opened")
+    ap.add_argument("--stride", type=int, default=5, help="--play: log every Nth frame")
     ap.add_argument("--episode", type=int, default=0, help="episode to take the reference frame from")
     ap.add_argument("--frame", type=int, default=0, help="frame index within that episode")
     ap.add_argument("--root", default=DEFAULT_ROOT, help="local dataset dir (NOT the repo_id path)")
@@ -94,14 +143,26 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--height", type=int, default=480)
     args = ap.parse_args(argv)
 
-    feeds = [parse_feed(f) for f in args.feeds]
-    names = [n for n, _ in feeds]
+    if args.play:
+        # names only: `--play front top` narrows it, bare `--play` shows all three
+        names = [f.partition("=")[0] for f in args.feeds] or list(PHYSICAL_TO_KEY)
+        for n in names:
+            if n not in PHYSICAL_TO_KEY:
+                raise SystemExit(f"unknown camera '{n}'. Use one of: {', '.join(PHYSICAL_TO_KEY)}")
+    else:
+        if not args.feeds:
+            raise SystemExit("give at least one PHYSICAL name=index (e.g. front=3), or use --play")
+        feeds = [parse_feed(f) for f in args.feeds]
+        names = [n for n, _ in feeds]
 
     print("physical camera -> dataset key (the keys are SWAPPED, this is deliberate):")
     for n in names:
         print(f"   {n:6s} -> {PHYSICAL_TO_KEY[n]}")
-    print(f"reference: episode {args.episode}, frame {args.frame}\n")
 
+    if args.play:
+        return play_episode(names, args.root, args.episode, args.stride)
+
+    print(f"reference: episode {args.episode}, frame {args.frame}\n")
     refs = reference_frames(names, args.root, args.episode, args.frame)
 
     import rerun as rr
@@ -131,7 +192,8 @@ def main(argv: list[str] | None = None) -> int:
                 ref = refs[name]
                 if live.shape != ref.shape:                # capture fell back to another size
                     ref = cv2.resize(ref, (live.shape[1], live.shape[0]))
-                rr.set_time_sequence("frame", t)
+                # rerun 0.33 removed set_time_sequence; set_time takes the kind as a kwarg
+                rr.set_time("frame", sequence=t)
                 rr.log(f"{name}/live", rr.Image(live))
                 rr.log(f"{name}/blend", rr.Image(cv2.addWeighted(live, 0.5, ref, 0.5, 0)))
             t += 1
