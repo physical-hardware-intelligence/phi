@@ -40,6 +40,7 @@ Copy expert demos, but predict a **chunk** of future actions at once to avoid co
 ## Generative action heads (Diffusion Policy · flow matching)
 Instead of regressing one action, **generate** an action trajectory from noise — captures the "many valid ways" (multimodality) of a task.
 - Diffusion Policy: https://arxiv.org/abs/2303.04137
+- **[Diffusion Policy, shape by shape](diffusion-policy-shapes.md)** — every tensor traced from the installed lerobot: why the image is crushed to 64 numbers per camera, why the UNet convolves over *time* rather than space, and why inference costs 100 forward passes (measured 9× over budget on the Mac).
 - Flow matching (used by pi0): the model learns a velocity field that flows noise → action in a few steps.
 
 ## Vision-Language-Action models (VLAs)

@@ -11,7 +11,7 @@ Training is **shared across robots**. You pick a policy with `--policy.type=...`
 | Policy | `--policy.type` | Install extra | What / when | Doc |
 |---|---|---|---|---|
 | **ACT** (Action Chunking Transformer) | `act` | base | ~80M imitation transformer; **start here** — trains in a few hours on 1 GPU, ~50 demos | https://huggingface.co/docs/lerobot/en/act |
-| **Diffusion Policy** | `diffusion` | `[diffusion]` | generative action trajectories; strong on contact-rich, multimodal tasks | model card: https://huggingface.co/lerobot/diffusion_pusht |
+| **Diffusion Policy** | `diffusion` | `[diffusion]` | generative action trajectories; strong on contact-rich, multimodal tasks | [shapes](../theory/diffusion-policy-shapes.md) · model card: https://huggingface.co/lerobot/diffusion_pusht |
 | **SmolVLA** | `smolvla` | `[smolvla]` | HF's 450M vision-language-action model; language-conditioned, runs on consumer HW | https://huggingface.co/docs/lerobot/en/smolvla |
 | **pi0 / pi0.5** | `pi0` / `pi05` | `[pi]` | Physical Intelligence flow-matching VLA foundation model; fine-tune from a base | https://huggingface.co/docs/lerobot/en/pi0 |
 
