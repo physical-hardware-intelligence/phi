@@ -1,7 +1,7 @@
 # act_so101_8bin_wrist_front_chunk50
 
 **HF id**: [`BrutalCaesar/act_so101_8bin_wrist_front_chunk50`](https://huggingface.co/BrutalCaesar/act_so101_8bin_wrist_front_chunk50) · public
-**Revision**: `main` (uploaded 2026-08-05; single commit)
+**Revision**: `5a4b372` (uploaded 2026-08-05) · verified: unauthenticated pull into a clean `HF_HOME`, `from_pretrained` loads 51.57M params, `select_action` returns `(1, 6)`
 **Policy**: ACT (lerobot 0.6.0) · `chunk_size=50`, `n_action_steps=50`, `dim_model=512`, ResNet-18 unfrozen, `kl_weight=10.0`
 **Dataset**: [`BrutalCaesar/phi_so101_8bin_v1`](https://huggingface.co/datasets/BrutalCaesar/phi_so101_8bin_v1) — 89 episodes, 6 of 8 bins
 **Steps / batch / seed**: 100,000 / 8 / 1000 (≈14.6 epochs, 800K samples)
