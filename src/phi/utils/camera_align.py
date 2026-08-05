@@ -86,7 +86,9 @@ def main(argv: list[str] | None = None) -> int:
 
     dead = [i for _, i, cap in cams if not cap.isOpened()]
     if dead:
-        print(f"could not open index {dead} — run `lerobot-find-cameras opencv` to get the real indices", file=sys.stderr)
+        print(f"could not open index {dead} — see what is attached with "
+              f'`ffmpeg -f avfoundation -list_devices true -i ""`, then probe indices here '
+              f"(AVFoundation numbering != OpenCV numbering)", file=sys.stderr)
     if all(not cap.isOpened() for _, _, cap in cams):
         return 1
 
@@ -119,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        for _, cap in cams:
+        for _, _, cap in cams:      # cams holds (name, index, cap)
             cap.release()
         cv2.destroyAllWindows()
     return 0
