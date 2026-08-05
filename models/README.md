@@ -6,4 +6,4 @@ Card = a `<slug>.md` with: HF id + revision · policy type · dataset trained on
 
 | Model (HF id) | Policy | Dataset | Steps | Eval (k/N) | Task | Notes |
 |---|---|---|---|---|---|---|
-| _(first one lands in Phase 1)_ | | | | | | |
+| [act_so101_8bin_wrist_front_chunk50](act_so101_8bin_wrist_front_chunk50.md) | ACT, chunk 50 | phi_so101_8bin_v1 (89 ep) | 100K | _not run_ | 8-bin pick & place | wrist+front; **keys swapped** — wrist feeds `observation.images.top` |
