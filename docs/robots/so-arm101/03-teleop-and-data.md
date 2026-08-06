@@ -205,12 +205,27 @@ lerobot-replay \
   --robot.port=/dev/tty.usbmodem5B7B0096441 \
   --robot.id=phi_follower \
   --dataset.repo_id=BrutalCaesar/phi_so101_redcube_in_box_v1 \
-  --dataset.root=$HOME/.cache/huggingface/lerobot/phi_so101_v2_20260805_170306 \
+  --dataset.root=$HOME/.cache/huggingface/lerobot/BrutalCaesar/phi_so101_v2_20260805_170306 \
   --dataset.episode=19
 ```
 
 **Use `$HOME`, not `~`** — tilde does not expand after `=` in bash. Omit `--dataset.root` to pull from
 the Hub instead of a local copy.
+
+### 🚨 A wrong `--dataset.root` silently re-downloads the whole dataset
+
+`--root` is not validated. Point it somewhere that has no `meta/info.json` and LeRobot treats it as an
+empty cache location and **fetches the entire dataset from the Hub into it** — no error, no warning,
+just a second copy on disk. An earlier version of this page omitted the `BrutalCaesar/` path segment
+and cost us a duplicate 181 MB download (2026-08-06).
+
+The recorded path is `<cache>/<org>/<repo_name>_<timestamp>` — **the org directory is part of it**, and
+the timestamp is appended at record time so the directory name is never just the repo name. List what
+actually exists rather than typing a path from memory:
+
+```bash
+python -m phi.utils.camera_realign --list
+```
 
 **Do not pass `--robot.cameras`.** Replay sends joint actions only; it never reads a camera. This is
 the one hardware script where the [camera-index problem](#when-do-camera-indices-change) cannot bite

@@ -102,6 +102,12 @@ def discover() -> list[Dataset]:
 
     Recorded locally  ->  <home>/<org>/<name>_<timestamp>/meta/info.json
     Pulled from Hub   ->  <home>/hub/datasets--<org>--<name>/snapshots/<sha>/meta/info.json
+    Stray copy        ->  <home>/<name>/meta/info.json
+
+    That third layout is not hypothetical: a `--dataset.root` missing the org
+    segment makes LeRobot silently download a whole second copy there, so this
+    lists it too — otherwise duplicates hide from exactly the tool you would use
+    to notice them.
     """
     home = lerobot_home()
     found: list[Dataset] = []
@@ -112,6 +118,11 @@ def discover() -> list[Dataset]:
             continue
         org, name = root.split(os.sep)[-2:]
         found.append(_read(root, name, f"{org}/{name}"))
+
+    for info_path in glob.glob(os.path.join(home, "*", "meta", "info.json")):
+        root = os.path.dirname(os.path.dirname(info_path))
+        name = os.path.basename(root)
+        found.append(_read(root, f"{name}  ⚠️ stray copy (no org dir)", f"unknown/{name}"))
 
     for info_path in glob.glob(
         os.path.join(home, "hub", "datasets--*", "snapshots", "*", "meta", "info.json")
