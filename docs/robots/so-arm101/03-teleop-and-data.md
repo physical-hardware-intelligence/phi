@@ -195,11 +195,59 @@ a.delete_tag(r, tag='v3.0', repo_type='dataset'); a.create_tag(r, tag='v3.0', re
 This is also why a collaborator who hit the error before the tag existed does **not** need to clear any cache: nothing was downloaded, the exception is raised during revision lookup, before the first file transfer.
 
 ## 4. Replay (verify the arm reproduces an episode)
+
+Streams a recorded episode's actions to the follower at the dataset's fps, so you watch the arm redo
+the demonstration.
+
 ```bash
 lerobot-replay \
-  --robot.type=so101_follower --robot.port=/dev/tty.usbmodem58760431541 --robot.id=phi_follower \
-  --dataset.repo_id=${HF_USER}/phi-cube-v1 --dataset.episode=0
+  --robot.type=so101_follower \
+  --robot.port=/dev/tty.usbmodem5B7B0096441 \
+  --robot.id=phi_follower \
+  --dataset.repo_id=BrutalCaesar/phi_so101_redcube_in_box_v1 \
+  --dataset.root=$HOME/.cache/huggingface/lerobot/phi_so101_v2_20260805_170306 \
+  --dataset.episode=19
 ```
+
+**Use `$HOME`, not `~`** — tilde does not expand after `=` in bash. Omit `--dataset.root` to pull from
+the Hub instead of a local copy.
+
+**Do not pass `--robot.cameras`.** Replay sends joint actions only; it never reads a camera. This is
+the one hardware script where the [camera-index problem](#when-do-camera-indices-change) cannot bite
+you.
+
+### Why replay is worth running: it is a free calibration check
+
+The actions in a dataset are joint targets recorded against **the calibration you had at record
+time**. So:
+
+- Replay reproduces the task → calibration still matches the recording. Any policy trained on this
+  data is being evaluated on the same joint frame it learned.
+- Replay lands consistently off (a centimetre short, gripper closing beside the object) → **calibration
+  has drifted since recording**. That same drift will sabotage a trained policy while looking exactly
+  like a policy failure.
+
+Run it after anything that could have moved the arm or changed calibration, and before you spend a
+training run. It costs one episode's worth of wall clock.
+
+### 🚨 Two things about how replay behaves
+
+**It jumps to the start pose with no ramp.** The loop is `robot.connect()` and then immediately
+`send_action` for frame 0 — there is no interpolation from wherever the arm is parked. If the arm is
+far from the episode's first pose, that command is a fast, large motion. **Move the follower roughly
+to the start pose by hand first**, and keep a hand near the power.
+
+**Replay is open-loop and does not see the object.** It replays joint targets, nothing else. If the
+cube is not where it sat at the start of that episode, the gripper closes on empty table and carries
+nothing. That is not a bug — it is what replay is. Place the object at the recorded start position if
+you want the motion to look like the task.
+
+### Pick the episode deliberately
+
+Prefer an episode that ended on the **right arrow** over one that hit the `episode_time_s` ceiling. A
+capped episode may have been cut mid-motion, so its replay stops mid-task and tells you nothing about
+calibration. Episode lengths are in `meta/episodes/`; anything sitting exactly at `fps ×
+episode_time_s` is a timer cut.
 
 ## The LeRobotDataset format (v3.0) — what you're creating
 `lerobot >= 0.4.0`. Many episodes are packed per file (not one-file-per-episode):
