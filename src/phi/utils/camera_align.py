@@ -70,6 +70,40 @@ def parse_feed(token: str) -> tuple[str, int]:
     return f"index {int(token)}", int(token)
 
 
+def run_rerun(cams, args) -> int:
+    """Stream every camera into the rerun viewer, one panel each.
+
+    Better than the tiled OpenCV window once you have three feeds: rerun gives
+    each camera a resizable panel you can maximise, so you are not squinting at
+    a third of a 1560 px strip.
+    """
+    import rerun as rr
+
+    rr.init("phi-camera-align", spawn=True)
+    print(f"streaming {[n for n, _, _ in cams]} to rerun — Ctrl-C here to stop")
+
+    t = 0
+    try:
+        while True:
+            for name, _, cap in cams:
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                if frame.shape[1] != args.width or frame.shape[0] != args.height:
+                    frame = cv2.resize(frame, (args.width, args.height))
+                frame = annotate(frame.copy(), name, args.width, args.height)
+                # rerun 0.33 removed set_time_sequence; the kind is a kwarg now
+                rr.set_time("frame", sequence=t)
+                rr.log(name, rr.Image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+            t += 1
+    except KeyboardInterrupt:
+        print("\nstopped.")
+    finally:
+        for _, _, cap in cams:
+            cap.release()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("feeds", nargs="*", default=None,
@@ -79,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--max-window-width", type=int, default=1560,
                     help="tiles scale down to fit this (default 1560, sized for a 13in laptop)")
+    ap.add_argument("--rerun", action="store_true",
+                    help="stream to the rerun viewer instead of an OpenCV window — one resizable "
+                         "panel per camera, which beats fixed tiles when you have three feeds")
     args = ap.parse_args(argv)
 
     feeds = [parse_feed(t) for t in (args.feeds or ["0", "1"])]
@@ -91,6 +128,9 @@ def main(argv: list[str] | None = None) -> int:
               f"(AVFoundation numbering != OpenCV numbering)", file=sys.stderr)
     if all(not cap.isOpened() for _, _, cap in cams):
         return 1
+
+    if args.rerun:
+        return run_rerun(cams, args)
 
     # keep the window on screen: capture stays at full res, only the display shrinks
     scale = min(1.0, args.max_window_width / (len(cams) * args.width))
