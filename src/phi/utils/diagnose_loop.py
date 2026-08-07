@@ -107,12 +107,12 @@ def main(argv: list[str] | None = None) -> int:
             raw_caps[n] = c
         print(f"cameras only: {sorted(cams)}")
 
-    # 🚨 What format are the cameras ACTUALLY in? `fourcc=MJPG` is frequently
-    #    refused by OpenCV's AVFoundation backend on macOS and falls back to
-    #    uncompressed YUYV, which is ~18.4 MB/s per camera at 640x480x30 against
-    #    roughly 35-40 MB/s of practical USB 2.0 bandwidth. Three cameras cannot
-    #    fit. This is the single most likely cause of the FPS warning and it is
-    #    invisible unless you print it.
+    # 🚨 macOS CANNOT TELL YOU THE PIXEL FORMAT. OpenCV's AVFoundation backend
+    #    returns fourcc=0 for these cameras, and its `set(CAP_PROP_FOURCC)` is
+    #    largely a no-op — so "failed to set fourcc=MJPG" is NOT evidence that the
+    #    stream is uncompressed, and an empty fourcc is "unreported", not "raw".
+    #    Do not infer bandwidth from it. The only trustworthy signal on this
+    #    platform is the DELIVERED frame rate measured below.
     if robot is not None:
         import cv2 as _cv
         print("camera formats actually in effect:")
@@ -121,17 +121,14 @@ def main(argv: list[str] | None = None) -> int:
             if vc is None:
                 continue
             v = int(vc.get(_cv.CAP_PROP_FOURCC))
-            cc = "".join(chr((v >> (8 * i)) & 0xFF) for i in range(4)).strip() or "(none/raw)"
-            bw = 640 * 480 * 2 * 30 / 1e6 if cc.upper() not in ("MJPG", "JPEG") else 640 * 480 * 30 * 0.1 / 1e6
-            print(f"   {n:6s} fourcc={cc:10s} ~{bw:5.1f} MB/s at 640x480x30")
-        raw = [n for n, cam in robot.cameras.items()
-               if (vc := getattr(cam, "videocapture", None)) is not None
-               and "".join(chr((int(vc.get(_cv.CAP_PROP_FOURCC)) >> (8 * i)) & 0xFF)
-                           for i in range(4)).strip().upper() not in ("MJPG", "JPEG")]
-        if len(raw) >= 2:
-            print(f"   🚨 {len(raw)} cameras are UNCOMPRESSED "
-                  f"(~{len(raw) * 18.4:.0f} MB/s total, USB 2.0 gives ~35-40). "
-                  f"They cannot all hold 30 fps.")
+            cc = "".join(chr((v >> (8 * i)) & 0xFF) for i in range(4)).replace("\x00", "").strip()
+            cc = cc or "unreported"
+            note = " (macOS/AVFoundation does not expose this — infer nothing from it)" \
+                if cc == "unreported" else ""
+            print(f"   {n:6s} fourcc={cc}{note}")
+        print("   For reference, IF a stream were uncompressed YUYV it would be ~18.4 MB/s at")
+        print("   640x480x30, against ~35-40 MB/s of practical USB 2.0. Whether that applies")
+        print("   here is decided by the delivered frame rate below, not by the fourcc.")
     print(f"\ntarget {args.fps} Hz = {budget:.1f} ms per tick · running {args.seconds} s\n")
 
     bus_ms: list[float] = []
