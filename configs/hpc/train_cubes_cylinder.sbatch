@@ -40,10 +40,21 @@ EVAL_STEPS=${EVAL_STEPS:-10000}
 CAM_A=observation.images.wrist      # keys are CORRECT in this dataset — no swap
 CAM_B=observation.images.front
 
+# β sweep. The demonstrations use ~3 distinct grasp approaches per object, so the
+# latent needs at least ln(3) ≈ 1.10 nats to represent which one a demo took. At
+# the default kl_weight=10 the measured KL is ~0.005 nats — about 0.4% of that —
+# so the latent cannot be encoding mode identity and the decoder is averaging the
+# three approaches. β is the direct lever: it sets the price the optimizer pays
+# per nat of latent information.
+#
+#   --array=0-1  the original pair (kl_weight=10 default, and the BC baseline)
+#   --array=2-3  the β sweep
 case $SLURM_ARRAY_TASK_ID in
-  0) USE_VAE=true;  TAG=cvae ;;
-  1) USE_VAE=false; TAG=bc   ;;   # no latent: plain behavioural cloning
-  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-1)"; exit 1 ;;
+  0) USE_VAE=true;  KL=10.0; TAG=cvae      ;;   # LeRobot default
+  1) USE_VAE=false; KL=10.0; TAG=bc        ;;   # no latent; KL unused
+  2) USE_VAE=true;  KL=1.0;  TAG=cvae_kl1  ;;
+  3) USE_VAE=true;  KL=0.1;  TAG=cvae_kl0p1;;
+  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-3)"; exit 1 ;;
 esac
 
 FEATS="{\"observation.state\": {\"type\": \"STATE\", \"shape\": [6]},
@@ -133,7 +144,7 @@ echo "=============================================================="
 echo " task $SLURM_ARRAY_TASK_ID  run=$RUN"
 echo " cameras       : wrist + front  (keys correct, no swap)"
 echo " chunk_size    : $CHUNK   (open-loop $(python -c "print(f'{$CHUNK/30:.2f}')") s at 30 fps)"
-echo " use_vae       : $USE_VAE"
+echo " use_vae       : $USE_VAE   (kl_weight=$KL)"
 echo " batch/steps   : $BATCH_SIZE / $STEPS   (save every $SAVE_FREQ, eval every $EVAL_STEPS)"
 echo " train epochs  : $(python -c "print(f'{$STEPS*$BATCH_SIZE/49969:.1f}')")  (49,969 train frames)"
 echo " node/GPU      : $(hostname)"
@@ -150,6 +161,7 @@ srun lerobot-train \
   --policy.device=cuda \
   --policy.push_to_hub=false \
   --policy.use_vae=$USE_VAE \
+  --policy.kl_weight=$KL \
   --policy.input_features="$FEATS" \
   --policy.chunk_size=$CHUNK \
   --policy.n_action_steps=$CHUNK \
@@ -163,7 +175,7 @@ srun lerobot-train \
   --wandb.enable=true \
   --wandb.mode=$WANDB_MODE_ARG \
   --wandb.project=phi-act \
-  --wandb.notes="cubes+cylinder, position holdout (5 eps from each of 6 object x bin blocks, 30 held out). use_vae=$USE_VAE. chunk=$CHUNK. eval_loss on the held-out 30 every $EVAL_STEPS steps."
+  --wandb.notes="cubes+cylinder, position holdout (5 eps from each of 6 object x bin blocks, 30 held out). use_vae=$USE_VAE, kl_weight=$KL. chunk=$CHUNK. eval_loss on the held-out 30 every $EVAL_STEPS steps."
 
 echo "task $SLURM_ARRAY_TASK_ID finished rc=$? at $(date)"
 
