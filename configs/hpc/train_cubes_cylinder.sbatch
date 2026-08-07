@@ -37,8 +37,10 @@ BATCH_SIZE=${BATCH_SIZE:-8}
 STEPS=${STEPS:-100000}
 SAVE_FREQ=${SAVE_FREQ:-20000}
 EVAL_STEPS=${EVAL_STEPS:-10000}
-CAM_A=observation.images.wrist      # keys are CORRECT in this dataset — no swap
+# keys are CORRECT in this dataset — no swap. CAM_C empty = two-camera run.
+CAM_A=observation.images.wrist
 CAM_B=observation.images.front
+CAM_C=
 
 # β sweep. The demonstrations use ~3 distinct grasp approaches per object, so the
 # latent needs at least ln(3) ≈ 1.10 nats to represent which one a demo took. At
@@ -54,12 +56,20 @@ case $SLURM_ARRAY_TASK_ID in
   1) USE_VAE=false; KL=10.0; TAG=bc        ;;   # no latent; KL unused
   2) USE_VAE=true;  KL=1.0;  TAG=cvae_kl1  ;;
   3) USE_VAE=true;  KL=0.1;  TAG=cvae_kl0p1;;
-  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-3)"; exit 1 ;;
+  # 4-5: the same CVAE / BC pair but with ALL THREE cameras, so the overhead view
+  # is available. 903 encoder tokens instead of 602.
+  4) USE_VAE=true;  KL=10.0; TAG=cvae_3cam; CAM_C=observation.images.top ;;
+  5) USE_VAE=false; KL=10.0; TAG=bc_3cam;   CAM_C=observation.images.top ;;
+  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-5)"; exit 1 ;;
 esac
 
-FEATS="{\"observation.state\": {\"type\": \"STATE\", \"shape\": [6]},
-        \"$CAM_A\": {\"type\": \"VISUAL\", \"shape\": [3, 480, 640]},
-        \"$CAM_B\": {\"type\": \"VISUAL\", \"shape\": [3, 480, 640]}}"
+CAMS="\"$CAM_A\": {\"type\": \"VISUAL\", \"shape\": [3, 480, 640]},
+      \"$CAM_B\": {\"type\": \"VISUAL\", \"shape\": [3, 480, 640]}"
+if [ -n "$CAM_C" ]; then
+  CAMS="$CAMS,
+      \"$CAM_C\": {\"type\": \"VISUAL\", \"shape\": [3, 480, 640]}"
+fi
+FEATS="{\"observation.state\": {\"type\": \"STATE\", \"shape\": [6]}, $CAMS}"
 
 RUN=act_cubcyl_poshold_chunk${CHUNK}_${TAG}
 OUT=$PROJECT/results/$RUN
@@ -142,7 +152,7 @@ fi
 
 echo "=============================================================="
 echo " task $SLURM_ARRAY_TASK_ID  run=$RUN"
-echo " cameras       : wrist + front  (keys correct, no swap)"
+echo " cameras       : $CAM_A $CAM_B $CAM_C"
 echo " chunk_size    : $CHUNK   (open-loop $(python -c "print(f'{$CHUNK/30:.2f}')") s at 30 fps)"
 echo " use_vae       : $USE_VAE   (kl_weight=$KL)"
 echo " batch/steps   : $BATCH_SIZE / $STEPS   (save every $SAVE_FREQ, eval every $EVAL_STEPS)"
