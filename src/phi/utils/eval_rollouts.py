@@ -223,7 +223,14 @@ def show_setup(refs: dict, caps: dict, ep: int, obj: str, cont: str,
             if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1:
                 return "quit"
     finally:
+        # 🚨 destroyWindow only QUEUES the close on macOS; the window is not
+        # actually torn down until the event loop is pumped. Without these
+        # waitKey calls the window survives as a frozen ghost showing the last
+        # frame with a spinning cursor for the whole blocking subprocess call,
+        # and it keeps the camera preview on screen looking like a hang.
         cv2.destroyWindow(win)
+        for _ in range(5):
+            cv2.waitKey(1)
 
 
 def run_rollout(model: str, cameras: dict[str, int], task: str, duration: int,
@@ -243,6 +250,9 @@ def run_rollout(model: str, cameras: dict[str, int], task: str, duration: int,
         f"--task={task}",
         f"--duration={duration}",
     ]
+    cv2.destroyAllWindows()          # belt and braces before we block on the subprocess
+    for _ in range(5):
+        cv2.waitKey(1)
     print("\n  " + " ".join(cmd) + "\n", flush=True)
     if dry_run:
         print("  [--dry-run: not executing]")
