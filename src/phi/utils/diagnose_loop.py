@@ -107,10 +107,40 @@ def main(argv: list[str] | None = None) -> int:
             raw_caps[n] = c
         print(f"cameras only: {sorted(cams)}")
 
-    print(f"target {args.fps} Hz = {budget:.1f} ms per tick · running {args.seconds} s\n")
+    # 🚨 What format are the cameras ACTUALLY in? `fourcc=MJPG` is frequently
+    #    refused by OpenCV's AVFoundation backend on macOS and falls back to
+    #    uncompressed YUYV, which is ~18.4 MB/s per camera at 640x480x30 against
+    #    roughly 35-40 MB/s of practical USB 2.0 bandwidth. Three cameras cannot
+    #    fit. This is the single most likely cause of the FPS warning and it is
+    #    invisible unless you print it.
+    if robot is not None:
+        import cv2 as _cv
+        print("camera formats actually in effect:")
+        for n, cam in robot.cameras.items():
+            vc = getattr(cam, "videocapture", None)
+            if vc is None:
+                continue
+            v = int(vc.get(_cv.CAP_PROP_FOURCC))
+            cc = "".join(chr((v >> (8 * i)) & 0xFF) for i in range(4)).strip() or "(none/raw)"
+            bw = 640 * 480 * 2 * 30 / 1e6 if cc.upper() not in ("MJPG", "JPEG") else 640 * 480 * 30 * 0.1 / 1e6
+            print(f"   {n:6s} fourcc={cc:10s} ~{bw:5.1f} MB/s at 640x480x30")
+        raw = [n for n, cam in robot.cameras.items()
+               if (vc := getattr(cam, "videocapture", None)) is not None
+               and "".join(chr((int(vc.get(_cv.CAP_PROP_FOURCC)) >> (8 * i)) & 0xFF)
+                           for i in range(4)).strip().upper() not in ("MJPG", "JPEG")]
+        if len(raw) >= 2:
+            print(f"   🚨 {len(raw)} cameras are UNCOMPRESSED "
+                  f"(~{len(raw) * 18.4:.0f} MB/s total, USB 2.0 gives ~35-40). "
+                  f"They cannot all hold 30 fps.")
+    print(f"\ntarget {args.fps} Hz = {budget:.1f} ms per tick · running {args.seconds} s\n")
 
     bus_ms: list[float] = []
     cam_ms: dict[str, list[float]] = {n: [] for n in cams}
+    # Read latency is NOT a camera health metric: read_latest() peeks a buffer and
+    # returns instantly whether or not a new frame ever arrived. What matters is
+    # how often the frame actually CHANGES.
+    fresh: dict[str, int] = {n: 0 for n in cams}
+    last_ts: dict[str, float] = {}
     tick_ms: list[float] = []
     stalls: list[tuple[float, str, float]] = []
 
@@ -137,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:
                               f"{type(e).__name__}: {e}")
                     dt = (time.perf_counter() - t) * 1e3
                     cam_ms[n].append(dt)
+                    ts = getattr(cam, "latest_timestamp", None)
+                    if ts is not None and last_ts.get(n) != ts:
+                        fresh[n] += 1
+                        last_ts[n] = ts
                     if dt > budget:
                         stalls.append((time.perf_counter() - t0, f"camera {n}", dt))
             else:
@@ -150,7 +184,10 @@ def main(argv: list[str] | None = None) -> int:
 
             dt = (time.perf_counter() - tick) * 1e3
             tick_ms.append(dt)
-            time.sleep(max(0.0, budget / 1000 - (time.perf_counter() - tick)))
+            # absolute deadline, not sleep(remaining): sleep overshoots and the
+            # error compounds, which is why an idle loop reported 27.1 of 30 Hz.
+            next_tick = t0 + len(tick_ms) * (budget / 1000)
+            time.sleep(max(0.0, next_tick - time.perf_counter()))
     except KeyboardInterrupt:
         print("\ninterrupted.")
     finally:
@@ -163,7 +200,13 @@ def main(argv: list[str] | None = None) -> int:
     if bus_ms:
         report("motor bus sync_read", bus_ms, budget)
     for n, xs in cam_ms.items():
-        report(f"camera {n}", xs, budget)
+        report(f"camera {n} read", xs, budget)
+    if any(fresh.values()):
+        print("\n  DELIVERED frame rate (how often the frame actually changed):")
+        for n, c in fresh.items():
+            rate = c / args.seconds
+            flag = "  <-- below target" if rate < args.fps * 0.9 else ""
+            print(f"    {n:6s} {rate:5.1f} fps of {args.fps}{flag}")
     report("whole tick", tick_ms, budget)
 
     achieved = len(tick_ms) / args.seconds
