@@ -77,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--robot-id", default="phi_follower")
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--seconds", type=int, default=20)
+    ap.add_argument("--test-send", action="store_true",
+                    help="also time send_action, the serial WRITE the rollout does every tick "
+                         "and a plain read loop does not. Re-sends the arm's CURRENT position, "
+                         "so it should hold still — but torque is engaged, so watch it.")
     args = ap.parse_args(argv)
 
     budget = 1000.0 / args.fps
@@ -132,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\ntarget {args.fps} Hz = {budget:.1f} ms per tick · running {args.seconds} s\n")
 
     bus_ms: list[float] = []
+    send_ms: list[float] = []
     cam_ms: dict[str, list[float]] = {n: [] for n in cams}
     # Read latency is NOT a camera health metric: read_latest() peeks a buffer and
     # returns instantly whether or not a new frame ever arrived. What matters is
@@ -154,6 +159,20 @@ def main(argv: list[str] | None = None) -> int:
                 bus_ms.append(dt)
                 if dt > budget:
                     stalls.append((time.perf_counter() - t0, "motor bus", dt))
+
+                if args.test_send:
+                    # Send back what we just read: a no-op target, but it exercises the
+                    # same serial WRITE path the rollout uses every tick.
+                    t = time.perf_counter()
+                    try:
+                        robot.send_action({k: v for k, v in
+                                           robot.bus.sync_read("Present_Position").items()})
+                    except Exception as e:
+                        print(f"  send_action raised {type(e).__name__}: {e}")
+                    dt = (time.perf_counter() - t) * 1e3
+                    send_ms.append(dt)
+                    if dt > budget:
+                        stalls.append((time.perf_counter() - t0, "send_action", dt))
 
                 for n, cam in robot.cameras.items():
                     t = time.perf_counter()
@@ -196,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\n--- {len(tick_ms)} ticks, budget {budget:.1f} ms ---")
     if bus_ms:
         report("motor bus sync_read", bus_ms, budget)
+    if send_ms:
+        report("motor bus send_action", send_ms, budget)
     for n, xs in cam_ms.items():
         report(f"camera {n} read", xs, budget)
     if any(fresh.values()):
