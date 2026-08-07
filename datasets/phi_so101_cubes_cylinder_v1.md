@@ -115,7 +115,7 @@ blocks, 30 held out / 90 train, **49,969 frames, 16.0 epochs**:
 held out: [0,1,2,3,4, 20,21,22,23,24, 45,46,47,48,49, 65,66,67,68,69, 90,91,92,93,94, 110,111,112,113,114]
 ```
 
-⚠️ The red-cube portion (`0-4, 20-24`) is provisional — see the open question in the experiment doc.
+Red-cube holdout confirmed 2026-08-06 as `0-4` / `20-24`. Splits are final.
 
 At the full 66,873 frames, 100k steps at batch 8 is **≈12 epochs** — a far healthier regime than
 `phi_so101_redcube_in_box_v1`, where the same step count meant 71 epochs over 20 episodes.

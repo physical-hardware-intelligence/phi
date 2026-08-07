@@ -61,7 +61,8 @@ grasp *geometry* or a memorized closure trajectory.
 Hold out **5 episodes from each of the 6 object×container blocks** — 30 held out, 90 train. Same
 objects, same containers, unseen start positions.
 
-⚠️ **The red-cube block is not yet settled — see "Open question" below.** Numbers here use option 1.
+Within-block offsets are 0 / 5 / 10 for red / cylinder / white cube, with the paired white-container
+group always **+20** from its cardboard counterpart.
 
 | Block | Held out |
 |---|---|
@@ -141,17 +142,8 @@ The training is not the bottleneck and has not been for two weeks.
 - Whether `use_vae=false` matches or collapses
 - A camera-pair ranking **from rollouts**, or an explicit finding that they do not differ
 
-## Open question — blocking Axis 2 and 3
+## Resolved
 
-The red-cube holdout was described as *"the first five from cardboard"* (→ 0-4) *"and then, in the
-same bin, you can just add 20"* (→ 20-24), but also *"From 25, the five episodes in the white
-container"* (→ 25-29, which pairs with 5-9).
-
-Both readings give a valid 30/90 split; they hold out different episodes. The other two objects use
-+20 consistently (45-49 → 65-69, 90-94 → 110-114), which favours **option 1: 0-4 and 20-24**. Confirm
-before anyone launches.
-
-| Option | Red-cube held out | Within-block offsets (red/cyl/white) |
-|---|---|---|
-| **1** | 0-4, 20-24 | 0 / 5 / 10 |
-| 2 | 5-9, 25-29 | 5 / 5 / 10 |
+**Red-cube holdout: episodes 0-4 and 20-24** (confirmed 2026-08-06). The spoken description contained
+both "the first five from cardboard … add 20" and "from 25"; the first reading was chosen because it
+matches the +20 pairing the other two objects use. Splits above are final.
