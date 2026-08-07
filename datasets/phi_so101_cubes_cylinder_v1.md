@@ -85,15 +85,39 @@ overhead view; it nearly disappears at episode 85. The red cube and orange cylin
 clearly. **If any block underperforms, episodes 80-119 are the better bet** — that disadvantage is
 present in every frame, whereas the fps issue is intermittent and unconfirmed.
 
-## Suggested splits
+## Object dimensions
 
-Unlike the earlier datasets, this one has real structure to hold out:
+| Object | Size |
+|---|---|
+| red cube | **25 × 25 × 25 mm** |
+| white cube | **45 × 45 × 45 mm** |
+| cylinder | yellow/orange |
 
-- **Hold out an object** (e.g. 80-119) → tests generalization to an unseen object shape and colour
-- **Hold out a bin** (e.g. 20-39, 60-79, 100-119) → tests generalization to an unseen container
-- **Both** → the hardest, and the most honest
+The 25 mm / 45 mm pair is deliberate: it makes an object holdout a **size-transfer** test in both
+directions, not just a colour/shape swap.
 
-At 66,873 frames, 100k steps at batch 8 is **≈12 epochs** — a far healthier regime than
+## Splits in use
+
+Defined in [2026-08-06_act-cubes-cylinder-splits](../experiments/2026-08-06_act-cubes-cylinder-splits.md).
+All indices are zero-based `episode_index`.
+
+**Object holdout (Parv)** — train on two objects, evaluate on the third:
+
+| Run | Held out | Train | Frames | Epochs @100k, batch 8 |
+|---|---|---|---|---|
+| P-A | red cube 0-39 | `range(40,120)` | 39,601 | 20.2 |
+| P-B | white cube 80-119 | `range(0,80)` | 48,596 | 16.5 |
+
+**Position holdout (Yash, and Sai's camera sweep)** — 5 episodes from each of the 6 object×container
+blocks, 30 held out / 90 train, **49,969 frames, 16.0 epochs**:
+
+```
+held out: [0,1,2,3,4, 20,21,22,23,24, 45,46,47,48,49, 65,66,67,68,69, 90,91,92,93,94, 110,111,112,113,114]
+```
+
+⚠️ The red-cube portion (`0-4, 20-24`) is provisional — see the open question in the experiment doc.
+
+At the full 66,873 frames, 100k steps at batch 8 is **≈12 epochs** — a far healthier regime than
 `phi_so101_redcube_in_box_v1`, where the same step count meant 71 epochs over 20 episodes.
 
 ## Related
