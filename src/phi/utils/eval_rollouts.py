@@ -11,6 +11,9 @@ https://huggingface.co/blog/sherryxychen/train-act-on-so-101
 
     reach object 0.2 · grasp 0.4 · reach container 0.7 · release 0.8 · in container 1.0
 
+The staging window shows each camera's RECORDED reference frame above its LIVE
+feed, so a dead or misindexed camera is caught before the arm moves.
+
 Note the spacing is deliberately uneven — the 0.4 -> 0.7 jump weights transport
 most heavily. Do not "tidy" it to 0.6; that would break comparability.
 
@@ -111,46 +114,107 @@ def block_of(ep: int) -> tuple[str, str]:
     raise SystemExit(f"episode {ep} is outside the known blocks (0-119)")
 
 
-def reference_scene(ds, episode: int) -> np.ndarray:
-    """front + top of the episode's first frame, side by side, as BGR."""
+def reference_frames(ds, episode: int, names: list[str]) -> dict[str, np.ndarray | None]:
+    """The episode's first recorded frame per PHYSICAL camera name, as BGR.
+
+    Goes through the dataset's key map, so this stays correct on datasets whose
+    keys are transposed (phi_so101_8bin_v1) as well as ones where they are not.
+    """
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     if not 0 <= episode < ds.episodes:
         raise SystemExit(f"episode {episode} out of range (dataset has {ds.episodes})")
     lds = LeRobotDataset(ds.repo_id, root=ds.root, episodes=[episode])
     item = lds[0]
-    tiles = []
-    for key in ("observation.images.front", "observation.images.top"):
-        if key not in item:
+    mapping, _ = ds.key_map
+    out: dict[str, np.ndarray | None] = {}
+    for n in names:
+        key = mapping.get(n)
+        if key is None or key not in item:
+            out[n] = None
             continue
         img = (item[key].permute(1, 2, 0).numpy() * 255).clip(0, 255).astype(np.uint8)
-        tiles.append(cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-    if not tiles:
-        raise SystemExit("neither front nor top camera found in this dataset")
-    return np.hstack(tiles)
+        out[n] = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    return out
 
 
-def show_setup(scene: np.ndarray, ep: int, obj: str, cont: str, n: int, total: int) -> str:
-    """Display the scene to reproduce. Returns 'go' | 'skip' | 'quit'."""
-    banner = np.zeros((116, scene.shape[1], 3), np.uint8)
-    lines = [
-        f"[{n}/{total}]  episode {ep}   OBJECT: {obj}   CONTAINER: {cont}",
-        "Place the object and container to match the frame below.",
-        "SPACE = run rollout   s = skip   q = quit",
-    ]
-    for i, t in enumerate(lines):
-        cv2.putText(banner, t, (12, 34 + i * 30), FONT, 0.62,
-                    (0, 255, 255) if i == 0 else (220, 220, 220), 2 if i == 0 else 1)
-    win = "phi eval - stage the scene"
-    frame = np.vstack([banner, scene])
-    scale = min(1.0, 1600 / frame.shape[1])
-    if scale < 1.0:
-        frame = cv2.resize(frame, (int(frame.shape[1] * scale), int(frame.shape[0] * scale)))
+def open_cameras(cameras: dict[str, int], width: int = 640, height: int = 480) -> dict:
+    caps = {}
+    for n, idx in cameras.items():
+        cap = cv2.VideoCapture(idx)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        caps[n] = cap
+    return caps
+
+
+def _tile(text: str, size: tuple[int, int], colour=(0, 0, 255)) -> np.ndarray:
+    t = np.zeros((size[1], size[0], 3), np.uint8)
+    cv2.putText(t, text, (12, size[1] // 2), FONT, 0.6, colour, 2)
+    cv2.rectangle(t, (0, 0), (size[0] - 1, size[1] - 1), colour, 2)
+    return t
+
+
+def _label(img: np.ndarray, text: str, colour) -> np.ndarray:
+    cv2.rectangle(img, (0, 0), (img.shape[1] - 1, img.shape[0] - 1), colour, 2)
+    cv2.putText(img, text, (10, 24), FONT, 0.55, colour, 2)
+    return img
+
+
+def show_setup(refs: dict, caps: dict, ep: int, obj: str, cont: str,
+               n: int, total: int, split: str) -> str:
+    """Recorded reference (top row) against LIVE feeds (bottom row).
+
+    Two jobs at once. Staging: match the object and container to the recorded
+    frame. Rig check: a dead or misindexed camera is visible here, before the arm
+    moves, and SPACE is refused until every camera delivers frames. A camera that
+    has drifted since recording also shows up as a mismatch between the rows —
+    a lightweight version of `camera_realign` folded into the eval loop.
+
+    Returns 'go' | 'skip' | 'quit'.
+    """
+    names = list(caps.keys())
+    size = (426, 320)
+    win = "phi eval - stage the scene (top: recorded / bottom: live)"
     try:
         while True:
+            rec, live, dead = [], [], []
+            for nm in names:
+                r = refs.get(nm)
+                rec.append(_label(cv2.resize(r, size).copy(), f"RECORDED {nm}", (0, 200, 255))
+                           if r is not None else _tile(f"{nm}: not in dataset", size, (0, 140, 255)))
+                ok, frame = caps[nm].read()
+                if not ok or frame is None:
+                    dead.append(nm)
+                    live.append(_tile(f"{nm}: NO SIGNAL", size))
+                else:
+                    live.append(_label(cv2.resize(frame, size), f"LIVE {nm}", (0, 230, 0)))
+
+            grid = np.vstack([np.hstack(rec), np.hstack(live)])
+            banner = np.zeros((116, grid.shape[1], 3), np.uint8)
+            tag = "CONTROL - trained on, tests the rig" if split == "train" else "HELD OUT"
+            lines = [
+                f"[{n}/{total}]  episode {ep}  [{tag}]   {obj}  ->  {cont}",
+                "Match the object and container to the RECORDED row above.",
+                (f"!! NO SIGNAL from {dead} - fix before running !!" if dead
+                 else "SPACE = run rollout    s = skip    q = quit"),
+            ]
+            for i, t in enumerate(lines):
+                col = (0, 255, 255) if i == 0 else ((0, 0, 255) if dead and i == 2 else (220, 220, 220))
+                cv2.putText(banner, t, (12, 34 + i * 30), FONT, 0.62, col, 2 if i != 1 else 1)
+
+            frame = np.vstack([banner, grid])
+            scale = min(1.0, 1700 / frame.shape[1])
+            if scale < 1.0:
+                frame = cv2.resize(frame, (int(frame.shape[1] * scale), int(frame.shape[0] * scale)))
             cv2.imshow(win, frame)
+
             k = cv2.waitKey(30) & 0xFF
             if k == ord(" "):
+                if dead:
+                    print(f"  refusing to run: no signal from {dead}")
+                    continue
                 return "go"
             if k == ord("s"):
                 return "skip"
@@ -363,8 +427,16 @@ def main(argv: list[str] | None = None) -> int:
     for i, ep in enumerate(episodes, 1):
         obj, cont = block_of(ep)
         task = f"pick up the {obj.split(' (')[0]} and place it in the {cont}"
+        refs = reference_frames(ds, ep, list(cameras))
         while True:
-            action = show_setup(reference_scene(ds, ep), ep, obj, cont, i, len(episodes))
+            # Cameras must be OURS for staging and FREE for the rollout, so they are
+            # opened and released around each staging step rather than held open.
+            caps = open_cameras(cameras)
+            try:
+                action = show_setup(refs, caps, ep, obj, cont, i, len(episodes), split_of(ep))
+            finally:
+                for c in caps.values():
+                    c.release()
             if action == "quit":
                 print("\nstopped.")
                 return report() if done else 0
