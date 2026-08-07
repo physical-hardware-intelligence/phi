@@ -78,10 +78,30 @@ HELD_OUT = [*range(0, 5), *range(20, 25), *range(45, 50),
 # spending an hour of arm time per model.
 DEFAULT_EPISODES = [0, 1, 20, 21, 45, 46, 65, 66, 90, 91, 110, 111]
 
+# 🚨 WHAT KIND OF HOLDOUT THIS IS. The 30 held-out episodes hold out *positions*:
+#    every object and both containers appear in training, and what the policy has
+#    not seen is this particular object placement. That is interpolation — a test
+#    split — NOT out-of-distribution. True OOD for this dataset means an unseen
+#    OBJECT, which is Parv's axis (P-A holds out the red cube, P-B the white one).
+#    Do not report position-holdout numbers as generalisation to new objects.
+#
+# CONTROL EPISODES: three episodes the policy DID train on, one per object, all
+# with the cardboard box so no container swap is needed. Run these FIRST. If a
+# policy cannot do an episode it was trained on, the fault is the rig — camera
+# alignment, indices, calibration drift — not the policy, and the remaining 24
+# rollouts would be measuring a broken setup. They also give the train-vs-heldout
+# gap, which is the actual generalisation measurement; a held-out score alone
+# tells you the level, not the gap.
+CONTROL_EPISODES = [5, 50, 95]
+
 CSV_PATH = "outputs/rollout_scores.csv"
-FIELDS = ["timestamp", "model", "episode", "object", "container",
+FIELDS = ["timestamp", "model", "episode", "split", "object", "container",
           "stage", "score", "grasp_approach", "hesitated", "notes"]
 FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+
+def split_of(ep: int) -> str:
+    return "heldout" if ep in HELD_OUT else "train"
 
 
 def block_of(ep: int) -> tuple[str, str]:
@@ -218,9 +238,19 @@ def report() -> int:
 
     for model in sorted({r["model"] for r in rows}):
         mr = [r for r in rows if r["model"] == model]
-        n, sr, mp = agg(mr)
         print(f"\n=== {model}")
-        print(f"    overall      n={n:3d}   success {sr:5.0%}   mean progress {mp:.3f}")
+        by_split = {}
+        for sp, label in (("train", "CONTROL (trained on)"), ("heldout", "HELD OUT (unseen positions)")):
+            rs = [r for r in mr if r.get("split", "heldout") == sp]
+            if rs:
+                n, sr, mp = agg(rs)
+                by_split[sp] = mp
+                print(f"    {label:28s} n={n:3d}   success {sr:5.0%}   mean progress {mp:.3f}")
+        if len(by_split) == 2:
+            print(f"    generalisation gap (control - heldout mean progress): "
+                  f"{by_split['train'] - by_split['heldout']:+.3f}")
+        mr = [r for r in mr if r.get("split", "heldout") == "heldout"] or mr
+        print(f"    -- breakdown below is HELD-OUT only --")
         # Never pool: a model can be fine on two objects and hopeless on the third.
         for label, field in (("by object", "object"), ("by container", "container")):
             print(f"    {label}:")
@@ -270,7 +300,9 @@ def main(argv: list[str] | None = None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", help="HF id or local pretrained_model dir")
     ap.add_argument("--dataset", help="dataset name substring or --list index")
-    ap.add_argument("--episodes", help=f"comma list (default: {DEFAULT_EPISODES})")
+    ap.add_argument("--episodes", help=f"comma list (default: {CONTROL_EPISODES} then {DEFAULT_EPISODES})")
+    ap.add_argument("--controls", type=int, default=len(CONTROL_EPISODES),
+                    help="how many trained-on control episodes to run first (0 to skip)")
     ap.add_argument("--cameras", default="wrist=0,top=1,front=2")
     ap.add_argument("--duration", type=int, default=30, help="seconds per rollout")
     ap.add_argument("--port", default="/dev/tty.usbmodem5B7B0096441")
@@ -283,17 +315,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.report:
         return report()
 
-    episodes = [int(x) for x in args.episodes.split(",")] if args.episodes else list(DEFAULT_EPISODES)
-    leaked = [e for e in episodes if e not in HELD_OUT]
-    if leaked:
-        print(f"🚨 WARNING: {leaked} were in the TRAINING set. Scores on them measure "
-              f"memorisation, not generalisation.\n")
+    if args.episodes:
+        episodes = [int(x) for x in args.episodes.split(",")]
+    else:
+        # controls first, deliberately: a failure here means stop and fix the rig
+        episodes = list(CONTROL_EPISODES[:args.controls]) + list(DEFAULT_EPISODES)
+    controls = [e for e in episodes if split_of(e) == "train"]
+    if controls:
+        print(f"note: {controls} are CONTROL episodes the policy trained on. They test the "
+              f"rig, not generalisation, and are reported separately.\n")
 
     if args.plan:
         print(f"\n{len(episodes)} episodes, 2 per object x container block:\n")
         for e in episodes:
             obj, cont = block_of(e)
-            print(f"  episode {e:3d}   {obj:18s} -> {cont}")
+            tag = "CONTROL (trained on)" if split_of(e) == "train" else "held out"
+            print(f"  episode {e:3d}   {obj:18s} -> {cont:15s} [{tag}]")
         print(f"\nrubric: " + " · ".join(f"{s:.1f} {lb}" for s, _, lb in RUBRIC[1:]))
         return 0
 
@@ -345,7 +382,8 @@ def main(argv: list[str] | None = None) -> int:
             label, score, approach, hes, notes = scored
             append_row({
                 "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "model": args.model, "episode": ep, "object": obj, "container": cont,
+                "model": args.model, "episode": ep, "split": split_of(ep),
+                "object": obj, "container": cont,
                 "stage": label, "score": score, "grasp_approach": approach,
                 "hesitated": hes, "notes": notes,
             })
