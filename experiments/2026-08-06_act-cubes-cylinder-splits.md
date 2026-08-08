@@ -126,6 +126,21 @@ carries information; 1e-6 does not. We have been treating those as the same thin
 
 ## Eval protocol
 
+🚨 **Prerequisite: all three of us must score against the calibration the models were trained
+with.** Every model here is trained on data recorded under `phi_follower`, and a policy emits joint
+angles *in that frame*. A different calibration silently reinterprets them — nothing errors, the arm
+just reaches wrong, and three owners' numbers stop being comparable.
+
+Checked 2026-08-07 with `python -m phi.utils.compare_calibration phi_follower <their-id>`: Parv's
+calibration of the same arm agreed to **<0.7° on all four measured joints** but sat **60.4° off on
+`wrist_roll`** (its range is hardcoded, so the calibration pose never cancels — see
+[02-setup §3b](../docs/robots/so-arm101/02-setup.md#3b--the-hole-wrist_roll-has-no-stops-so-its-calibration-pose-is-permanent))
+and **4.2° off on `shoulder_pan`** (≈18 mm at the gripper, most of a 25 mm cube). Scoring Axis 1 on
+that calibration would have measured the calibration, not the object holdout.
+
+**Before anyone scores: same arm → copy `phi_follower.json` to that machine (drives the error to
+zero); then `lerobot-replay` one episode to confirm.** Re-run the diff after any recalibration.
+
 - **20 scored rollouts per held-out condition**, reported **per condition, never averaged**
 - Parv: per object, on the held-out object
 - Yash/Sai: per held-out position group

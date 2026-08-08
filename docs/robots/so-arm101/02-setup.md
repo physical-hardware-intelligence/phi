@@ -97,6 +97,60 @@ lerobot-calibrate --robot.type=so101_follower --robot.port=$FOLLOWER_PORT --robo
 lerobot-calibrate --teleop.type=so101_leader  --teleop.port=$LEADER_PORT  --teleop.id=$LEADER_ID
 ```
 
+### 3a. What is actually in the file, and why it mostly doesn't matter
+
+Calibration files live in `~/.cache/huggingface/lerobot/calibration/robots/so_follower/<id>.json`. Each joint is a Feetech STS3215 with a **12-bit encoder**: one full turn split into **4096 numbered positions ("ticks")**, so **1 tick = 360/4095 = 0.0879°**. Where tick 0 physically points is arbitrary — it depends on how the horn was pressed onto the output shaft at assembly.
+
+Two fields per joint:
+
+| Field | What it is |
+|---|---|
+| `homing_offset` | Feetech firmware computes `Present_Position = Actual_Position − Homing_Offset`. `set_half_turn_homings()` picks it so the pose you held at the *"move to the middle"* prompt reads **2047**. It records **your pose**, not the arm. |
+| `range_min` / `range_max` | the two physical hard stops, recorded **after** homing while you sweep the joint by hand. |
+
+`use_degrees=True` is the default in `SOFollowerConfig`, so joints 1–5 are `MotorNormMode.DEGREES` and the gripper is `RANGE_0_100`:
+
+```
+joints 1-5   degrees = (Present_Position − mid) × 360/4095      mid = (range_min + range_max)/2
+gripper      percent = (Present_Position − range_min) / (range_max − range_min) × 100
+```
+
+**The important property: for a joint with real hard stops, your homing pose cancels out.** Substitute `Present = Actual − homing`. Because `mid` was measured in that same homed frame it carries the same homing term, and the two subtract away:
+
+```
+degrees = (Actual − mid_absolute) × 360/4095       mid_absolute = midpoint of the two PHYSICAL stops
+```
+
+What's left is *"how far am I from the centre of my mechanical range"* — a fact about plastic and metal. **Two people who both push each joint into its stops get identical degrees**, on any machine. That is why policies transfer between laptops at all, and it is a good design.
+
+### 3b. 🚨 The hole: `wrist_roll` has no stops, so its calibration pose is permanent
+
+`wrist_roll` is a full-rotation joint. `so_follower.py` **excludes it from range recording and hardcodes its range**:
+
+```python
+full_turn_motor = "wrist_roll"
+range_mins[full_turn_motor], range_maxes[full_turn_motor] = 0, 4095   # typed in, not measured
+```
+
+So `mid` is 2047.5 for everybody, there is nothing for the homing term to cancel against, and **the cancellation above does not happen**. Whatever wrist angle you held at the ENTER prompt becomes that joint's permanent zero.
+
+Measured on our arm (2026-08-07): two calibrations of **the same follower** by two people agreed on all four measured joints to within **1–7 ticks (<0.7°)** — and differed on `wrist_roll` by **687 ticks = 60.4°**. Every joint with an anchor agreed; the one joint without an anchor was off by two-thirds of a right angle.
+
+**So, at that prompt: set `wrist_roll` to a repeatable physical landmark** — jaws level and untwisted, parallel to the table edge. (Same pose that keeps your ±180° of teleop travel symmetric — see [troubleshooting](troubleshooting.md#calibration--teleop).) **And push every other joint firmly into both hard stops:** stop short on one side only and `mid` moves half your shortfall. In that same comparison, an 86-tick difference in how far `shoulder_pan` was swept became a **4.2° base-yaw offset ≈ 18 mm** of sideways error at the gripper — most of a 25 mm cube.
+
+### 3c. Moving a trained policy to someone else's machine
+
+A policy outputs degrees in **the frame of the calibration it was trained with**. Run it against a different calibration and nothing errors — the arm just reaches to the wrong place, and the only symptom is a success rate nobody measured. Diff the two files first:
+
+```bash
+python -m phi.utils.compare_calibration phi_follower <their-id-or-path>
+```
+
+Pure stdlib, ~50 ms, no robot and no env needed. It reports per-joint disagreement in degrees and millimetres, and it starts by checking whether the two files even describe **the same physical arm** — comparing `range_min + homing_offset`, the absolute stop position, which is a hardware property. Same arm → stops agree within a few ticks. Different arms → hundreds of ticks, because the horns sit on different spline teeth, and no offset is meaningful.
+
+- **Same arm** → don't recalibrate, **copy the trained-with file** to the other machine. Every offset goes to exactly zero. Recalibrating only re-rolls the `wrist_roll` dice.
+- **Different arm** → recalibrate there, following §3b, then `lerobot-replay` an episode before trusting a rollout ([why replay is a free calibration check](03-teleop-and-data.md#why-replay-is-worth-running-it-is-a-free-calibration-check)).
+
 ## 4. Teleoperate (sanity check)
 No camera needed here — this checks the arms only.
 ```bash
