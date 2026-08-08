@@ -148,7 +148,12 @@ python -m phi.utils.compare_calibration phi_follower <their-id-or-path>
 
 Pure stdlib, ~50 ms, no robot and no env needed. It reports per-joint disagreement in degrees and millimetres, and it starts by checking whether the two files even describe **the same physical arm** — comparing `range_min + homing_offset`, the absolute stop position, which is a hardware property. Same arm → stops agree within a few ticks. Different arms → hundreds of ticks, because the horns sit on different spline teeth, and no offset is meaningful.
 
-- **Same arm** → don't recalibrate, **copy the trained-with file** to the other machine. Every offset goes to exactly zero. Recalibrating only re-rolls the `wrist_roll` dice.
+- **Same arm** → don't recalibrate, **copy the trained-with file** to the other machine. Every offset goes to exactly zero. Recalibrating only re-rolls the `wrist_roll` dice. The canonical one — the calibration **every model in `models/` was trained under** — is committed at [`configs/calibration/robots/so_follower/phi_follower.json`](../../../configs/calibration/robots/so_follower/phi_follower.json), so this is a `git pull` plus:
+  ```bash
+  cp configs/calibration/robots/so_follower/phi_follower.json \
+     ~/.cache/huggingface/lerobot/calibration/robots/so_follower/
+  ```
+  Re-commit it **only** if the arm is rebuilt or a servo is replaced, and say so in the commit message — it is the reference frame for every dataset we have recorded.
 - **Different arm** → recalibrate there, following §3b, then `lerobot-replay` an episode before trusting a rollout ([why replay is a free calibration check](03-teleop-and-data.md#why-replay-is-worth-running-it-is-a-free-calibration-check)).
 
 ## 4. Teleoperate (sanity check)
