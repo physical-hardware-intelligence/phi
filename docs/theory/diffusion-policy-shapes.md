@@ -2,6 +2,8 @@
 
 Every tensor from dataloader to action, traced from the installed `lerobot` 0.6.0 — not read off the paper. Companion to [act-shapes](act-shapes.md); the comparison table at the end is the short version.
 
+> 📖 **Read [diffusion-policy-why](diffusion-policy-why.md) first if you want the argument rather than the trace.** It derives the whole architecture from one problem (regression averages multimodal demonstrations into invalid actions) and explains why noise, why 100 steps, and why the multimodality lives in sampling instead of in a latent. This page is the reference; that page is the story.
+
 Config traced: **LeRobot defaults**, 2 cameras @ 3×480×640, state/action dim 6, batch 8.
 
 > Needs the optional extra: `pip install "lerobot[diffusion]==0.6.0"` (pulls `diffusers>=0.27.2,<0.36.0`). Without it `DiffusionPolicy` will not import.
