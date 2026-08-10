@@ -63,7 +63,7 @@ Everything odd about the architecture follows: why the image is crushed to 64 nu
 
 ### SpatialSoftmax — the pivotal transformation
 
-> 📖 **Full treatment: [spatial-softmax](spatial-softmax.md)** — the reshape and matmul drawn out shape by shape, a 2×3 worked example you can check by hand, why precision equals peakedness, two traps in the upstream docstring, and the three ways it lies to you. This section is the summary.
+> 📖 **Full treatment: [diffusion-policy-why §7–12](diffusion-policy-why.md#part-ii--how-it-sees)** — the reshape and matmul drawn out shape by shape, a 2×3 worked example you can check by hand, why precision equals peakedness, two traps in the upstream docstring, and the three ways it lies to you. This section is the summary.
 
 Three sub-operations, all in `SpatialSoftmax.forward`:
 

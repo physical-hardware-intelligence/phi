@@ -40,9 +40,10 @@ Copy expert demos, but predict a **chunk** of future actions at once to avoid co
 ## Generative action heads (Diffusion Policy · flow matching)
 Instead of regressing one action, **generate** an action trajectory from noise — captures the "many valid ways" (multimodality) of a task.
 - Diffusion Policy: https://arxiv.org/abs/2303.04137
-- ⭐ **[Diffusion Policy — why it is shaped like that](diffusion-policy-why.md)** — start here. The whole architecture derived from one problem: regression outputs the *mean* of multimodal demonstrations, and the mean of two valid grasps is a collision. Explains why noise, why 100 small steps rather than one jump, and why the multimodality lives in sampling instead of in a latent that can collapse (as ours did).
-- **[Diffusion Policy, shape by shape](diffusion-policy-shapes.md)** — every tensor traced from the installed lerobot: why the image is crushed to 64 numbers per camera, why the UNet convolves over *time* rather than space, and why inference costs 100 forward passes (measured 9× over budget on the Mac).
-- **[SpatialSoftmax, the pivotal transformation](spatial-softmax.md)** — how 921,600 numbers become 64. The reshape and matmul drawn out shape by shape, a 2×3 example you can check by hand, why localisation precision *is* the network's confidence, and the three ways a centre-of-mass keypoint lies to you. Read it before trusting keypoints on a multi-object scene.
+Two docs, and the split is deliberate — **one story you read, one reference you look things up in.**
+
+- ⭐ **[Diffusion Policy — why it is shaped like that](diffusion-policy-why.md)** — **start here, read start to finish.** The whole architecture derived from one problem: regression outputs the *mean* of multimodal demonstrations, and the mean of two valid grasps is a collision. Part I is diffusion itself (why noise, why 100 small steps not one jump, why the multimodality lives in sampling instead of a latent that can collapse — as ours did). Part II is how it sees (the 1×1 conv, SpatialSoftmax, a 2×3 example you can check by hand, and the three ways a keypoint lies). Part III is how it generates (the sinusoidal embedding, FiLM, GroupNorm, the convolution arithmetic). Every section runs: problem → candidate designs → why the winner won → the shapes.
+- **[Diffusion Policy, shape by shape](diffusion-policy-shapes.md)** — the **reference**: every tensor measured from the installed lerobot, VRAM and latency, config traps that will mislead you, and the ACT comparison table.
 - Flow matching (used by pi0): the model learns a velocity field that flows noise → action in a few steps.
 
 ## Vision-Language-Action models (VLAs)
