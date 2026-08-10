@@ -50,7 +50,50 @@ That is why the output is `(B, K, 2)` and not `(B, K)`. **The trailing axis of s
 
 Take the docstring's example: a cuboid `(512, 10, 12)`. Think **512 sheets of paper, each 10×12** — not "a 3D tensor".
 
-### 3a. Reshape — the cuboid becomes a rug of rows
+### 3a. The 1×1 conv — choosing what deserves a coordinate
+
+```python
+if self.nets is not None:
+    features = self.nets(features)     # Conv2d(512, 32, kernel_size=1)
+```
+
+**You already know a 1×1 convolution: RGB → greyscale is one.** `gray = 0.299·R + 0.587·G + 0.114·B` is a weighted sum across channels, applied independently at every pixel, same weights everywhere — i.e. `Conv2d(3, 1, kernel_size=1)` with those weights. This is the same operation with 512 inputs, 32 outputs, and the weights learned.
+
+A `kernel_size=1` conv has **no spatial extent** — its window is one cell — but a conv kernel always spans **every input channel**. So at each cell it reads that cell's 512-vector and emits a 32-vector, then slides on and repeats with the **identical** weights:
+
+```
+   at cell (7,11):  a 512-vector  ──[ W : 32 × 512 ]──►  a 32-vector
+   …same W reused at all 300 cells, nothing crosses between them
+```
+
+⇒ **A 1×1 conv is a `Linear` layer applied per position, with weights shared across positions.** `H` and `W` come out unchanged.
+
+It doesn't just resemble a matmul, it *is* one (measured):
+
+```
+conv output      (4, 32, 15, 20)
+matmul output    (4, 32, 15, 20)      W = conv.weight.view(32, 512)
+max |difference| 8.94e-07             y = W @ x.reshape(B,512,300) + b
+
+weight shape             (32, 512, 1, 1)   -- the trailing 1,1 carry no information
+params  1×1 conv         16,416
+params  3×3 conv (same)  147,488   = 9× more
+```
+
+**What "which 32 combinations" means.** Output channel *k* is `Σ_c W[k,c]·feature_c` — a learned recipe over the 512 backbone detectors. Weights can be **negative**, so a recipe can subtract: *"reddish and roundish but not gripper-coloured."* The conv can synthesise detectors the backbone lacks, including by cancellation. And since only 32 of them survive, it is a **learned budget**: of everything ResNet noticed, these 32 things are worth a coordinate.
+
+**It also sets the precision.** This conv runs immediately before the softmax, so the *magnitude* of its output is the softmax temperature. Larger weights → peakier distribution → tighter keypoint. The same 16,416 parameters choose both **what** gets located and **how sharply** — the mechanism behind the worked example in §5.
+
+> **The frame worth keeping.** The next two operations contract **perpendicular axes**:
+>
+> | | contracts | leaves alone | einsum |
+> |---|---|---|---|
+> | **1×1 conv** | the **channel** axis, 512 → 32 | `H`, `W` | `'chw,kc->khw'` |
+> | **SpatialSoftmax** | the **spatial** axis, 300 → gone | channels | `'ki,id->kd'` |
+>
+> In each, the shared index is absent from the output and therefore summed away. Same move, rotated 90°. **The conv decides *what* to track; the softmax reports *where* it is.**
+
+### 3b. Reshape — the cuboid becomes a rug of rows
 
 ```python
 features = features.reshape(-1, self._in_h * self._in_w)   # (512, 10, 12) -> (512, 120)
@@ -67,7 +110,7 @@ features = features.reshape(-1, self._in_h * self._in_w)   # (512, 10, 12) -> (5
   └──────────────┘ sheet 511    row 511 │ r0 │ r1 │ r2 │ … │ r9 │
 ```
 
-### 3b. Softmax — one belief per channel
+### 3c. Softmax — one belief per channel
 
 ```python
 attention = F.softmax(features, dim=-1)     # along each row, over the 120 cells
@@ -75,7 +118,7 @@ attention = F.softmax(features, dim=-1)     # along each row, over the 120 cells
 
 `dim=-1` is the spatial axis. **One softmax per channel**, each over its own 120 numbers, each row now summing to 1. Rows never look at each other — see the docstring trap in §7.
 
-### 3c. `pos_grid` — a lookup table, not an image
+### 3d. `pos_grid` — a lookup table, not an image
 
 Built once in `__init__`, constant, shared by all channels. `(120, 2)`, read as:
 
@@ -83,7 +126,7 @@ Built once in `__init__`, constant, shared by all channels. `(120, 2)`, read as:
 
 It is not data. It is the ruler.
 
-### 3d. The matmul — the shared axis is summed away
+### 3e. The matmul — the shared axis is summed away
 
 ```python
 expected_xy = attention @ self.pos_grid     # (512, 120) @ (120, 2) -> (512, 2)
@@ -118,7 +161,7 @@ torch.einsum('ki,id->kd', attention, pos_grid)
 
 `i` is missing from the output → `i` is summed → **120 vanishes**. What remains is `k` (which channel) and `d` (which coordinate).
 
-### 3e. Where the batch went
+### 3f. Where the batch went
 
 The real call is `(B, K, H, W)`, and `reshape(-1, H*W)` folds **both** B and K into rows:
 
