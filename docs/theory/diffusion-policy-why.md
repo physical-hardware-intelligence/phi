@@ -203,7 +203,32 @@ A `kernel_size=1` conv has **no spatial extent** — its window is one cell — 
    …same W at all 300 cells, nothing crosses between them
 ```
 
-⇒ **A 1×1 conv is a `Linear` layer applied per position, with weights shared across positions.** `H` and `W` come out unchanged. It doesn't resemble a matmul, it *is* one (measured):
+⇒ **A 1×1 conv is a `Linear` layer applied per position, with weights shared across positions.** `H` and `W` come out unchanged.
+
+**Where does the 32 live?** Stop picturing a solid cuboid. A `(512, 10, 12)` tensor is a **flat 10×12 grid with a skewer standing at each of the 120 positions**, every skewer holding 512 beads. The conv walks the grid and swaps each 512-bead skewer for a 32-bead one. No square moves, merges or disappears — only the *height* of the skewers changes. The 32 lives down the depth axis, exactly where the 512 was.
+
+And the reduction at one skewer is **32 dot products**, not squeezing or pooling. `W` is `(32, 512)` = 32 rows, each 512 long; each row is a *recipe* that multiplies the whole column and sums to one number.
+
+> **It is not compression by throwing things away. It is compression by asking fewer, better questions** — all 512 values are consulted every time, 32 times over.
+
+Shrunk to hand-checkable size (4 channels → 2, on a 2×3 grid), with `recipe 0 = [1, 1, 0, 0]` and `recipe 1 = [0, 0, 1, −1]`:
+
+```
+INPUT   (1, 4, 2, 3)      every square hides a column of 4
+   (0,0) [1, 2, 3, 4]     (0,1) [10, 11, 12, 13]     (0,2) [100, 101, 102, 103]
+OUTPUT  (1, 2, 2, 3)      grid UNCHANGED, depth 4 -> 2
+   (0,0) [3, -1]          (0,1) [21, -1]             (0,2) [201, -1]
+
+square (0,0), column [1,2,3,4]:
+   recipe 0:  1·1 + 1·2 + 0·3 +  0·4  =  3
+   recipe 1:  0·1 + 0·2 + 1·3 + -1·4  = -1
+```
+
+Note the second output channel reads `−1` at *every* square. Not a bug: recipe 1 computes a **difference**, and in that test data channels 2 and 3 always differ by 1. A difference-recipe is blind to the overall level and reports only contrast — which is precisely the sort of invariance the real layer learns ("reddish minus gripper-coloured," firing on the cube regardless of room brightness), and why negative weights matter. A recipe that can only add can never build an invariance.
+
+**Weights are few; the work is many.** `16,384` weights = 32 recipes × 512 inputs, but `4,915,200` multiply-adds because the recipe book is consulted at all 300 squares. That **300× ratio is weight sharing**, and it is also why this is called a convolution at all: the sliding and the sharing are both present, the window just happens to be 1×1. All of the weight sharing, none of the neighbourhood.
+
+It doesn't resemble a matmul, it *is* one (measured):
 
 ```
 conv output      (4, 32, 15, 20)
