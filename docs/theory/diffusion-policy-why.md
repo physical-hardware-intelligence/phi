@@ -13,6 +13,47 @@ Config as installed (`lerobot` 0.6.0, all verified against source): `horizon=64`
 
 Each section follows the same shape: **the problem stated exactly → the candidate designs → why the winner won → the shapes.**
 
+## The whole thing on one page
+
+```
+ ═══ COMPUTED ONCE per chunk ══════════════════════════════════════════════
+
+   images (8,2,2,3,480,640)      state (8,2,6)          t  (one rung of 100)
+            │                          │                        │
+     2× ResNet18                       │                    sinusoid
+     (16, 512, 15, 20)                 │                    (8, 128)
+            │                          │                        │
+     1×1 conv 512→32                   │                 MLP 128→512→128
+     (16, 32, 15, 20)                  │                    (8, 128)
+            │                          │                        │
+     soft-argmax                       │                        │
+     (16,32,2) → (16,64)               │                        │
+            └────────────┬─────────────┘                        │
+                    (8, 268)  global_cond                       │
+                         └─────────────────┬──────────────────────┘
+                                 the condition  (8, 396)
+                                           │
+                                           │  FiLM into all 14 blocks
+ ═══ ×100  the generator ═══════════════════▼══════════════════════════════
+
+     sample xₜ  ──────►  UNet, conv along TIME  ──────►  noise ε̂
+     (8, 64, 6)          T: 64 → 32 → 16 → 32 → 64       (8, 64, 6)
+          ▲                                                   │
+          └──────────────  scheduler.step  ◄──────────────────┘
+                            xₜ → xₜ₋₁
+
+ ══════════════════════════════════════════════════════════════════════════
+
+     slice [:, 1:33]  ──►  unnormalize  ──►  action queue
+     (8, 32, 6)            MIN_MAX → deg     one (8, 6) per control tick
+```
+
+**Read it as one asymmetry.** Everything above the divide runs **once per chunk**; everything below runs **100 times**. That single split explains the latency profile, why adding a camera is nearly free, and why `num_inference_steps` is the only real speed lever.
+
+Three inputs, three fates: the images are crushed **14,400×** into 64 numbers each, the state passes through untouched, and the timestep is *expanded* from one number to 128. All three flatten into one 396-vector that has **no time axis at all** — which is precisely why FiLM (§14) is the only sensible way to inject it. The condition is then computed once and reused identically on every one of the 100 iterations.
+
+The loop is a **cycle, not a pipeline**: input and output are both `(8, 64, 6)`, because this is a repair operation on a trajectory, not a function from observation to action. And then half the answer is discarded — 64 generated, 32 executed.
+
 ---
 ---
 
