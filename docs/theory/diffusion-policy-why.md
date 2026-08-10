@@ -33,7 +33,7 @@ Each section follows the same shape: **the problem stated exactly → the candid
                          └─────────────────┬──────────────────────┘
                                  the condition  (8, 396)
                                            │
-                                           │  FiLM into all 14 blocks
+                                           │  FiLM into all 12 blocks
  ═══ ×100  the generator ═══════════════════▼══════════════════════════════
 
      sample xₜ  ──────►  UNet, conv along TIME  ──────►  noise ε̂
@@ -540,7 +540,20 @@ scale[b,c] is ONE number s.        out[b,c] is 16 numbers.
 | **per channel `(C, 1)`** | **4,096** | **chosen** — a channel *is* a feature |
 | per (channel, timestep) `(C, T)` | 65,536 | rejected |
 
-Per-(channel, timestep) is the obvious "more expressive" option and would give the conditioning a temporal address. Rejected for two reasons. **Principled:** the observation genuinely *is* a snapshot, so 16 different values along time means inventing information never measured. **Arithmetic:** `Linear(396, 2·2048·16)` = **25,952,256 params in one block**; across 14 blocks, **363M** — larger than the entire 255M UNet. Not a trade-off, an impossibility.
+Per-(channel, timestep) is the obvious "more expressive" option and would give the conditioning a temporal address. Rejected for two reasons. **Principled:** the observation genuinely *is* a snapshot, so 16 different values along time means inventing information never measured. **Arithmetic:** `Linear(396, 2·C·T)` per block, summed over the real per-block `C` and `T`:
+
+```
+down0  C=512  T=64   Linear(396, 65536) = 25,952,256   x2 blocks
+down1  C=1024 T=32   Linear(396, 65536) = 25,952,256   x2
+down2  C=2048 T=16   Linear(396, 65536) = 25,952,256   x2
+mid    C=2048 T=16   Linear(396, 65536) = 25,952,256   x2
+up0    C=1024 T=16   Linear(396, 32768) = 12,976,128   x2
+up1    C=512  T=32   Linear(396, 32768) = 12,976,128   x2
+                              total over 12 blocks = 259,522,560
+                              the entire UNet      = 255,425,670
+```
+
+**The conditioning alone would outweigh the whole network.** Not a trade-off, an impossibility. (Note `C·T` is constant down the encoder — halving the length doubles the channels — which is why four of the six groups cost identically.)
 
 > 🚨 **The mixing desk has its faders taped down.**
 > The conv trunk is the band, producing 2048 tracks. FiLM is the desk: 2048 faders (`scale`) and 2048 DC offsets (`bias`). The observation sets the desk **once, before the song**, and cannot ride the faders during it. A fader at zero mutes a track permanently; an offset can only bury one.
@@ -627,7 +640,7 @@ k=2 s=2 p=0:  taps [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]  uniform
 
 ## 17. Residuals, skips, and Mish
 
-**The residual.** `out = out + self.residual_conv(x)`, where `residual_conv` is `Identity` when channels match and otherwise **a 1×1 conv** — the same operation from §8, used purely to remap channel count so the addition is legal. Each block therefore learns a **correction** rather than a replacement, and the gradient gets a highway. A 14-block stack is only trainable because of this.
+**The residual.** `out = out + self.residual_conv(x)`, where `residual_conv` is `Identity` when channels match and otherwise **a 1×1 conv** — the same operation from §8, used purely to remap channel count so the addition is legal. Each block therefore learns a **correction** rather than a replacement, and the gradient gets a highway. A 12-block stack is only trainable because of this.
 
 **Skips concatenate, they don't add.** Addition requires matching channels and *asserts the two tensors live in the same space*. Concatenation lets the following conv **learn** the combination, including learning to ignore one. The deciding question is whether the merged things *are* the same kind of thing:
 

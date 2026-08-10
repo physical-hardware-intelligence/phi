@@ -141,13 +141,23 @@ Five load-bearing details:
 
 **`GroupNorm(8)`, not BatchNorm — in the UNet.** Per-sample normalisation over `(channel-group × time)`, so it is **batch-independent** — the function at inference with batch 1 is identical to training at batch 64. Critical here, because inference runs batch 1 a hundred times.
 
+**Exact counts and locations, enumerated from the built module:**
+
+| | count | where |
+|---|---|---|
+| residual blocks | **12** | `down_modules.{0,1,2}.{0,1}` · `mid_modules.{0,1}` · `up_modules.{0,1}.{0,1}` |
+| FiLM (`cond_encoder`) | **12** | one per residual block, **between `conv1` and `conv2`** — never at a block's edge |
+| GroupNorm | **25** | `<block>.conv{1,2}.block.1` (12 × 2) **plus** `final_conv.0.block.1` |
+
+Each `cond_encoder` is its **own** `Linear(396, 2C)`, not a shared one — so the same 396-vector is read 12 different ways, and the width tracks that block's channel count (`2C` = 1024, 2048 or 4096). Summing those twelve gives **11,382,784**, which matches the measured FiLM parameter total exactly.
+
 > ⚠️ **This does NOT apply to the vision backbone.** `use_group_norm` defaults to **`False`**, so the ResNet18 keeps its **BatchNorm** layers unless you opt in — and line 507 refuses to let you swap them on pretrained weights ("without ruining the weights"). Harmless at inference (eval mode uses running stats), but the clean "no BatchNorm anywhere" story is wrong.
 
 **`Mish`** = `x·tanh(softplus(x))`, smooth everywhere. The target is a smooth continuous field; ReLU's kink doesn't help.
 
 **🚨 FiLM is `(B, 2C, 1)` and broadcasts over `T`.** The deepest point in the architecture: **the same scale and bias apply to all 64 timesteps.** The observation *cannot* say "at step 12 do this" — it can only globally re-weight which feature channels matter. ⇒ **The observation has no temporal address.** All temporal structure must come from the convolutions reading the noisy trajectory; the conditioning only selects *which kind* of trajectory is being produced.
 
-**The residual** makes each block learn a *correction*, which is what makes a 14-block stack trainable.
+**The residual** makes each block learn a *correction*, which is what makes a 12-block stack trainable.
 
 ## The U: why downsample time
 
