@@ -9,8 +9,11 @@ So: pick a dataset, pull a frame where the follower arm was at REST, and overlay
 the live feed on it until they coincide.
 
     python -m phi.utils.camera_realign --list
-    python -m phi.utils.camera_realign --dataset redcube wrist=1 front=0
-    python -m phi.utils.camera_realign --dataset 8bin wrist=1 top=2 --episode 5
+    python -m phi.utils.camera_realign --dataset cubes_cylinder_v1 wrist=0 top=1 front=2
+    python -m phi.utils.camera_realign --dataset 8bin wrist=0 top=1 --episode 5
+
+    ⚠️ The indices in those examples are whatever they happened to be on one day.
+       They are NOT a mapping to reuse. Get today's from `camera_align` first.
 
 Why a resting frame: it is the one pose you can reproduce by hand in seconds.
 Mid-reach frames are useless as a target because you cannot put the arm back
@@ -28,11 +31,21 @@ still.
    front / top) and let KEY_OVERRIDES below do the translation. The mapping in
    use is printed at startup — read it.
 
-Camera indices are OpenCV's, which are NOT AVFoundation's. On this MacBook the
-order has been established twice: 0 = Brio (front), 1 = icspring (wrist),
-2 = EMEET (top), 3 = built-in. `ffmpeg -f avfoundation -list_devices true -i ""`
-tells you what is attached, not what index OpenCV will give it. Confirm with
-`python -m phi.utils.camera_align 0 1 2 3`.
+🚨 DO NOT TRUST A WRITTEN-DOWN INDEX ORDER, INCLUDING ONE IN THIS FILE. Camera
+   indices are OpenCV's, not AVFoundation's, and macOS re-enumerates them based
+   on USB port, plug order, hub power-up timing and reboots. An earlier version
+   of this docstring asserted a fixed order (0=front, 1=wrist, 2=top); it was
+   observed to be 0=wrist, 1=top, 2=front on 2026-08-10. Both are "correct" on
+   their day, which is the point: there is no stable answer to write down.
+
+   LOOK, EVERY SESSION, before passing indices:
+       python -m phi.utils.camera_align 0 1 2 3
+   `ffmpeg -f avfoundation -list_devices true -i ""` tells you what is attached,
+   NOT what index OpenCV will hand you, so it does not settle this.
+
+   You also get a second, free check: this script overlays live against recorded.
+   If an index is wrong you will be staring at a gripper close-up ghosted onto an
+   overhead view. A nonsense overlay means a wrong index, not a moved camera.
 
 Keys while running:  1 blend · 2 difference · 3 edges · 4 side-by-side
                      s save a snapshot · q / Esc quit
