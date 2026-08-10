@@ -59,25 +59,17 @@ Everything odd about the architecture follows: why the image is crushed to 64 nu
 
 **ResNet18 trades space for semantics.** Stride 32: each of the 15×20 cells summarises a 32×32 input patch, and channels go 3 → 512, changing meaning from "colour" to "512 learned detectors". Identical to ACT to this point.
 
+> 🚨 **`resize_shape` and `crop_shape` both default to `None`** — the full 480×640 goes in, uncropped. Random cropping is the original Diffusion Policy paper's primary image augmentation and **LeRobot ships it off.** Setting `crop_shape` with `crop_is_random=True` (default) buys translation augmentation for free — random at train time, always centre-crop at eval (`modeling_diffusion.py:549`). Relevant to any viewpoint-robustness work.
+
 ### SpatialSoftmax — the pivotal transformation
+
+> 📖 **Full treatment: [spatial-softmax](spatial-softmax.md)** — the reshape and matmul drawn out shape by shape, a 2×3 worked example you can check by hand, why precision equals peakedness, two traps in the upstream docstring, and the three ways it lies to you. This section is the summary.
 
 Three sub-operations, all in `SpatialSoftmax.forward`:
 
-**1. `Conv2d(512, 32, kernel_size=1)`.** A 1×1 conv is a per-cell linear map *across channels*, touching no neighbours. It asks: which 32 combinations of the 512 detectors are worth **locating**? → `(16,32,15,20)`
-
-**2. `softmax` over the flattened spatial axis.**
-```python
-features = features.reshape(-1, self._in_h * self._in_w)   # (16*32, 300)
-attention = F.softmax(features, dim=-1)                    # over the 300 cells
-```
-Each channel becomes a **probability distribution over grid positions**. Channel *k* stops meaning "how strong is feature *k*" and starts meaning "**where** is feature *k*".
-
-**3. Expectation against a coordinate grid — soft-argmax.**
-```python
-pos_x, pos_y = np.meshgrid(np.linspace(-1,1,W), np.linspace(-1,1,H))   # (300, 2)
-expected_xy = attention @ self.pos_grid                                 # (16*32, 2)
-```
-`(N,300) @ (300,2)` is `Σ p(cell)·coord(cell)` — the mean position under that belief, in normalised `[-1,1]` coordinates.
+1. **`Conv2d(512, 32, kernel_size=1)`** — a per-cell linear map *across channels*, touching no neighbours. Asks which 32 combinations of the 512 detectors are worth **locating**. → `(16,32,15,20)`
+2. **`softmax` over the flattened spatial axis** (`reshape(-1, 300)`, then `dim=-1`) — each channel becomes a **probability distribution over grid positions**, independently. Channel *k* stops meaning "how strong is feature *k*" and starts meaning "**where** is feature *k*".
+3. **Expectation against a constant coordinate grid** — `(N,300) @ (300,2)` is `Σ p(cell)·coord(cell)`, the mean position under that belief in normalised `[-1,1]` coordinates. The 300 axis is shared by both operands and is summed away.
 
 ```
 (16, 32, 15, 20)  →  (16, 32, 2)
@@ -86,7 +78,7 @@ expected_xy = attention @ self.pos_grid                                 # (16*32
 **`H` and `W` are consumed and replaced by a coordinate axis of size 2.** The output is not features-at-locations; it *is* locations. Thirty-two `(x,y)` pairs.
 
 - **Compression is 14,400×**: `3×480×640 = 921,600` numbers → 64. Appearance — colour, texture, *which* of two similar objects — is gone. Only geometry survives.
-- **Precision beats the grid.** Soft-argmax is a weighted mean, not an argmax, so a keypoint lands between cells. Resolution is set by softmax peakedness, not by the 15×20 spacing.
+- **Precision beats the grid.** A weighted mean, not an argmax, so a keypoint lands between cells. Resolution is set by softmax peakedness, not by the 15×20 spacing.
 
 Then `Linear(64→64)` + ReLU lets the network recombine raw coordinates into useful quantities (e.g. *differences* between keypoints — relative rather than absolute position).
 
@@ -147,7 +139,9 @@ Five load-bearing details:
 
 **`padding = kernel_size // 2` → length preserved, and the convolution is NON-CAUSAL.** Position `t` sees `t−2 … t+2`, including *later* steps. Deliberate: the model revises the whole 64-step chunk simultaneously. **There is no autoregression anywhere in Diffusion Policy.**
 
-**`GroupNorm(8)`, not BatchNorm.** Per-sample normalisation over `(channel-group × time)`, so it is **batch-independent** — the function at inference with batch 1 is identical to training at batch 64. Critical here, because inference runs batch 1 a hundred times.
+**`GroupNorm(8)`, not BatchNorm — in the UNet.** Per-sample normalisation over `(channel-group × time)`, so it is **batch-independent** — the function at inference with batch 1 is identical to training at batch 64. Critical here, because inference runs batch 1 a hundred times.
+
+> ⚠️ **This does NOT apply to the vision backbone.** `use_group_norm` defaults to **`False`**, so the ResNet18 keeps its **BatchNorm** layers unless you opt in — and line 507 refuses to let you swap them on pretrained weights ("without ruining the weights"). Harmless at inference (eval mode uses running stats), but the clean "no BatchNorm anywhere" story is wrong.
 
 **`Mish`** = `x·tanh(softplus(x))`, smooth everywhere. The target is a smooth continuous field; ReLU's kink doesn't help.
 
@@ -174,8 +168,11 @@ eps = torch.randn(trajectory.shape)                          # (8, 64, 6)
 timesteps = torch.randint(0, num_train_timesteps, (B,))      # one t per sample
 noisy_trajectory = self.noise_scheduler.add_noise(trajectory, eps, timesteps)
 pred = self.unet(noisy_trajectory, timesteps, global_cond)
-loss = F.mse_loss(pred, eps, reduction="none") * (~action_is_pad).unsqueeze(-1)
+loss = F.mse_loss(pred, eps, reduction="none")
+# then EITHER `loss.mean()`  OR  the masked branch below — see the warning
 ```
+
+> 🚨 **`do_mask_loss_for_padding` defaults to `False`.** The masked branch shown in most write-ups of this file **does not run by default** — `modeling_diffusion.py:399` returns a plain `loss.mean()`, and copy-padded frames at episode boundaries are trained on as if they were real. **ACT, by contrast, always masks.** So a Diffusion-Policy loss and an ACT loss are not measuring the same population, and any head-to-head comparison of the two numbers is invalid unless you set this to `True`. This interacts with the `drop_n_last_frames` note at the end of this page — both concern how much padded supervision you are actually training on.
 
 `add_noise` is elementwise per `(b,t,d)`: `x_t = sqrt(ᾱ_t)·x₀ + sqrt(1−ᾱ_t)·ε`. Computed from this config (`squaredcos_cap_v2`, `T=100`):
 
@@ -208,7 +205,15 @@ for t in self.noise_scheduler.timesteps:                   # 99, 98, ... 0
 
 **Vision runs once and is reused identically 100 times** — so the ResNets and SpatialSoftmax are not in the loop, and `num_inference_steps` is the only real latency lever.
 
-**Then most of the answer is discarded**: `horizon=64` generated, `n_action_steps=32` executed. The tail exists so the convolutions have context beyond the part you use.
+**Then most of the answer is discarded** — and *which* part is kept is not the obvious one:
+
+```python
+start = n_obs_steps - 1          # = 1
+end   = start + n_action_steps   # = 33
+actions = actions[:, start:end]  # modeling_diffusion.py:328
+```
+
+`horizon=64` generated, **steps 1–32 executed**. **Step 0 is dropped, not step 63.** The horizon is measured from the *first* observation, which happened one tick in the past, so index 0 belongs to that older observation and would replay something already done. Steps 33–63 are discarded; the tail exists so the convolutions have context beyond the part you use.
 
 ## Measured cost, and the deployment verdict
 

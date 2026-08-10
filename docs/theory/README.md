@@ -42,6 +42,7 @@ Instead of regressing one action, **generate** an action trajectory from noise �
 - Diffusion Policy: https://arxiv.org/abs/2303.04137
 - ⭐ **[Diffusion Policy — why it is shaped like that](diffusion-policy-why.md)** — start here. The whole architecture derived from one problem: regression outputs the *mean* of multimodal demonstrations, and the mean of two valid grasps is a collision. Explains why noise, why 100 small steps rather than one jump, and why the multimodality lives in sampling instead of in a latent that can collapse (as ours did).
 - **[Diffusion Policy, shape by shape](diffusion-policy-shapes.md)** — every tensor traced from the installed lerobot: why the image is crushed to 64 numbers per camera, why the UNet convolves over *time* rather than space, and why inference costs 100 forward passes (measured 9× over budget on the Mac).
+- **[SpatialSoftmax, the pivotal transformation](spatial-softmax.md)** — how 921,600 numbers become 64. The reshape and matmul drawn out shape by shape, a 2×3 example you can check by hand, why localisation precision *is* the network's confidence, and the three ways a centre-of-mass keypoint lies to you. Read it before trusting keypoints on a multi-object scene.
 - Flow matching (used by pi0): the model learns a velocity field that flows noise → action in a few steps.
 
 ## Vision-Language-Action models (VLAs)
