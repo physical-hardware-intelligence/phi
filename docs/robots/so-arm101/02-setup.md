@@ -140,7 +140,21 @@ Measured on our arm (2026-08-07): two calibrations of **the same follower** by t
 
 ### 3c. Moving a trained policy to someone else's machine
 
-A policy outputs degrees in **the frame of the calibration it was trained with**. Run it against a different calibration and nothing errors — the arm just reaches to the wrong place, and the only symptom is a success rate nobody measured. Diff the two files first:
+> ### ✅ Confirmed on the arm, 2026-08-10 — this is not a theoretical risk
+>
+> The `phi_so101_cubes_cylinder` dataset was recorded on **Yash's laptop**, so every action in it is expressed in **Yash's calibration frame**, and the policy trained on it inherited that frame.
+>
+> **Sai then ran that same policy on his own machine, against his own calibration.** Nothing crashed, nothing warned, the rollout looked superficially normal — but **the gripper was visibly wrong**: it went to the wrong place and mis-grasped.
+>
+> **Copying Yash's calibration file onto Sai's machine fixed it.** Same checkpoint, same arm, same task — the only thing that changed was the reference frame, and the policy started working properly.
+>
+> Two things this pins down:
+> 1. **The failure is silent.** There is no error, no warning, no log line. It presents as "the model isn't very good," which is the single most expensive way for a bug to disguise itself — you go tune hyperparameters against a problem that was a JSON file.
+> 2. **The fix is a file copy, not a retrain.** Because it is a frame mismatch and not a modelling failure.
+>
+> **This is why [`configs/calibration/robots/so_follower/phi_follower.json`](../../../configs/calibration/robots/so_follower/phi_follower.json) exists** and why it is committed to the repo rather than left in each person's cache. It is the one frame every recorded dataset and every trained checkpoint in `models/` shares. **Before running any Φ policy on any machine, make sure that file is the calibration in use.**
+
+A policy outputs degrees in **the frame of the calibration it was trained with**. Run it against a different calibration and nothing errors — the arm just reaches to the wrong place (see the box above, where exactly that happened). Diff the two files first:
 
 ```bash
 python -m phi.utils.compare_calibration phi_follower <their-id-or-path>

@@ -17,6 +17,20 @@ lerobot-rollout \
 `--strategy.type`: `base` (autonomous) · `sentry` (record + auto-upload eval episodes) · `dagger` (human-in-the-loop) · `episodic`. For slow VLAs (pi0/SmolVLA) add `--inference.type=rtc` (Real-Time Chunking).
 ⚠️ Camera config **must match** what was used at recording time.
 
+### 🚨 Precondition: use the repo's calibration, not your own
+
+**Before any rollout that produces a number**, make sure the machine is running the committed calibration:
+
+```bash
+cp configs/calibration/robots/so_follower/phi_follower.json \
+   ~/.cache/huggingface/lerobot/calibration/robots/so_follower/
+python -m phi.utils.compare_calibration phi_follower <whatever-you-were-using>
+```
+
+A policy emits joint angles in **the calibration frame it was trained in**. Run it against a different one and there is **no error and no warning** — the arm just reaches to the wrong place, and it looks exactly like a bad policy. **We hit this for real on 2026-08-10**: a cubes/cylinder policy trained on data recorded on Yash's laptop mis-grasped on Sai's machine, and copying Yash's calibration file over fixed it with no retraining. Full explanation: [so-arm101 setup §3c](../robots/so-arm101/02-setup.md#3c-moving-a-trained-policy-to-someone-elses-machine).
+
+⇒ **Any leaderboard number recorded under a non-canonical calibration is void.** State the calibration you used alongside the number.
+
 ## The Φ evaluation protocol (do this for every reported number)
 1. **Fixed trial count:** N = 20 rollouts (state it if different).
 2. **Declared initial conditions:** list the object positions / start poses you test (e.g. "cube at 5 grid positions × 4 trials").

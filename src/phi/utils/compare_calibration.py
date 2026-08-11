@@ -10,6 +10,15 @@ laptop. Nothing errors. The arm moves smoothly. It just reaches to slightly the
 wrong place, and the only symptom is a success rate nobody measured. This turns
 that invisible failure into a number you can read in five seconds.
 
+This is not hypothetical. 2026-08-10: a policy trained on the cubes/cylinder
+dataset (recorded on Yash's laptop, so expressed in Yash's calibration frame)
+was run by Sai against Sai's own calibration. No error, no warning -- the
+gripper simply went to the wrong place and mis-grasped. Copying Yash's
+calibration file over fixed it, same checkpoint, no retraining. That is why
+configs/calibration/robots/so_follower/phi_follower.json is committed to the
+repo: it is the single frame every Phi dataset and checkpoint shares.
+Full write-up: docs/robots/so-arm101/02-setup.md section 3c.
+
 Pure stdlib on purpose — no torch, no lerobot, no serial port, no robot. It runs
 in ~50 ms on any machine, including one that has never had the env installed, so
 there is no excuse not to run it before a handoff.
