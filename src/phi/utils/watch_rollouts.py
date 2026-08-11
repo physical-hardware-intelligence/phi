@@ -187,6 +187,18 @@ def build_config(args, cameras: dict[str, int | str]):
     policy_cfg = PreTrainedConfig.from_pretrained(args.model, revision=args.revision)
     policy_cfg.pretrained_path = args.model
 
+    # Re-plan rate. Trained with n_action_steps=50, i.e. the arm commits to 1.67 s
+    # of plan from one observation. Measured open-loop drift against a held-out
+    # episode on 2026-08-11 grows monotonically across the chunk:
+    #   steps 0-9 after a re-plan  16.1 deg  ->  steps 40-49  37.2 deg
+    # Lowering this costs nothing and needs no retraining: the policy still
+    # predicts 50 actions, it just discards more of the stale tail. Worth trying
+    # 10-15 if the arm looks confident early then wanders.
+    if args.n_action_steps:
+        if args.n_action_steps > policy_cfg.chunk_size:
+            sys.exit(f"  --n-action-steps must be <= chunk_size ({policy_cfg.chunk_size})")
+        policy_cfg.n_action_steps = args.n_action_steps
+
     if args.device:
         device = args.device
     elif torch.cuda.is_available():
@@ -234,6 +246,9 @@ def main() -> None:
     p.add_argument("--task", default=DEFAULT_TASK)
     p.add_argument("--max-step-deg", type=float, default=15.0,
                    help="per-tick joint rate limit; 0 disables")
+    p.add_argument("--n-action-steps", type=int, default=None,
+                   help="actions executed per re-plan (trained: 50 = 1.67s open loop). "
+                        "Lower = re-plans more often, no retraining needed. Try 10-15.")
     p.add_argument("--device", default=None, help="cuda / mps / cpu (auto-detected)")
     p.add_argument("--display-data", action="store_true", help="stream to Rerun")
     p.add_argument("--force", action="store_true", help="bypass the preflight gates (loudly)")
