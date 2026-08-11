@@ -17,3 +17,9 @@ it is ready.
 |---|---|---|---|---|---|---|
 | [act_so101_8bin_wrist_front_chunk50](act_so101_8bin_wrist_front_chunk50.md) | ACT, chunk 50 | phi_so101_8bin_v1 (89 ep) | 100K | _not run_ | 8-bin pick & place | wrist+front; **keys swapped** — wrist feeds `observation.images.top` |
 | [act_so101_8bin_wrist_top_chunk50](act_so101_8bin_wrist_top_chunk50.md) | ACT, chunk 50 | phi_so101_8bin_v1 (89 ep) | 100K | _not run_ | 8-bin pick & place | wrist+top; **both keys transposed** — wrist→`.top`, top→`.wrist` |
+| [act_so101_cubcyl_recovery_chunk50_noaug_3cam](act_so101_cubcyl_recovery_chunk50_noaug_3cam.md) | ACT, chunk 50 | phi_so101_cubes_cylinder_recovery_v1 (143 ep) | 100K | _not run_ | cubes/cylinder → box | 3 cams, keys **correct**; image aug **OFF** (A/B control) |
+| [act_so101_cubcyl_recovery_chunk50_aug_3cam](act_so101_cubcyl_recovery_chunk50_aug_3cam.md) | ACT, chunk 50 | phi_so101_cubes_cylinder_recovery_v1 (143 ep) | 100K | _not run_ | cubes/cylinder → box | 3 cams, keys **correct**; image aug **ON**; 80k weights on branch `step-80000` |
+
+🚨 **Calibration is a precondition of every number in the Eval column.** A policy emits angles in the calibration frame of the machine that recorded its training data. Run it against a different one and it mis-grasps with no error and no warning — confirmed on the arm 2026-08-10. Copy `configs/calibration/robots/so_follower/phi_follower.json` into `~/.cache/huggingface/lerobot/calibration/robots/so_follower/` first, and diff with `python -m phi.utils.compare_calibration`. Any result taken under a different calibration is **void**, not merely noisy.
+
+🚨 **Zero of the models in this table have a scored rollout.** That is the bottleneck, not model count.

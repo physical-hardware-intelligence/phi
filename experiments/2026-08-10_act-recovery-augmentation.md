@@ -84,10 +84,43 @@ A policy emits joint angles in the calibration frame it was trained in. Running 
 
 ## Results
 
-_Pending._
+Both tasks **COMPLETED**, exit 0. Array `9066699`. `eval_loss` = full L1 + KL on the 30 clean held-out episodes.
 
-| Run | Aug | eval_loss @20k | @40k | @60k | @80k | @100k |
-|---|---|---|---|---|---|---|
-| `recovery_3cam_noaug` | off | | | | | |
-| `recovery_3cam_aug` | on | | | | | |
-| `cvae_3cam` (control, no recovery data) | off | | | | | |
+| Run | Aug | @20k | @40k | @60k | @80k | @100k | wall |
+|---|---|---|---|---|---|---|---|
+| `recovery_3cam_noaug` (task 0, d4052) | off | 0.2222 | 0.2056 | 0.2058 | 0.2053 | **0.2052** | 1 h 50 m |
+| `recovery_3cam_aug` (task 1, d4055) | on | 0.2149 | 0.2112 | 0.2056 | **0.2046** | 0.2088 | 2 h 54 m |
+
+Off-checkpoint evals (every 10k) fill in the shape:
+
+| step | 10k | 30k | 50k | 70k | 90k |
+|---|---|---|---|---|---|
+| aug off | 0.2278 | 0.2078 | 0.2073 | 0.2069 | 0.2048 |
+| aug on | 0.2211 | 0.2133 | 0.2079 | 0.2046 | 0.2037 |
+
+### Reading it honestly
+
+**The augmentation is a wash on this metric.** Aug leads early (10k–20k), trails through the middle (30k–50k), and is level from 60k on. Best-ever values are 0.2048 (off, 90k) vs 0.2037 (on, 90k) — a 0.5% gap on a single seed. **No winner is readable here.**
+
+Two structural limits, both predicted before the runs and both still binding:
+
+1. The holdout is entirely clean, so **nothing in this number tests recovery**.
+2. L1 over a 50-step chunk is dominated by transit motion, so it is close to **blind to grasp precision** — which is exactly what the `affine` concern was about. The pre-registered concern is therefore neither confirmed nor refuted; it is unmeasured.
+
+**Cost:** augmentation added 57% wall time (2 h 54 m vs 1 h 50 m) for no measurable held-out gain.
+
+**One catch worth acting on:** the aug run's 100k checkpoint (0.2088) is *worse* than its 80k (0.2046). Pushing `last` blindly would have shipped the weaker weights.
+
+### Published
+
+| Run | HF id | Revision |
+|---|---|---|
+| aug off | [`act_so101_cubcyl_recovery_chunk50_noaug_3cam`](https://huggingface.co/BrutalCaesar/act_so101_cubcyl_recovery_chunk50_noaug_3cam) | `main` = `cd93421` (100k) |
+| aug on | [`act_so101_cubcyl_recovery_chunk50_aug_3cam`](https://huggingface.co/BrutalCaesar/act_so101_cubcyl_recovery_chunk50_aug_3cam) | `main` = `539ef57` (100k) · `step-80000` = `2ffdc6f` |
+
+`main` is the fixed 100k step for both so the head-to-head is not a selection on a noisy metric; the 80k branch exists so a rollout can test whether checkpoint choice matters more than the augmentation. Cards: [noaug](../models/act_so101_cubcyl_recovery_chunk50_noaug_3cam.md) · [aug](../models/act_so101_cubcyl_recovery_chunk50_aug_3cam.md).
+
+### Still open
+
+- **The `cvae_3cam` control row is missing.** Comparing against it on the same 30 clean episodes is what answers "did adding recovery data damage clean performance?" — pull its `eval_loss` from the 2026-08-06 run.
+- **Zero scored rollouts.** Three publishable checkpoints, no success rate. Everything above is loss, and loss cannot rank these.
