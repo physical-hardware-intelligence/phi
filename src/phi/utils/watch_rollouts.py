@@ -89,6 +89,31 @@ def parse_cameras(spec: str) -> dict[str, int | str]:
     return out
 
 
+def check_port(port: str, force: bool) -> None:
+    """Fail fast on a bad port instead of blocking on a serial timeout.
+
+    🚨 Do NOT get the port with `--port $(lerobot-find-port)`. That tool is
+    INTERACTIVE: it prints "Remove the USB cable ... and press Enter" and then
+    blocks on input(). Command substitution swallows the prompt, so the terminal
+    goes silent and looks hung forever, and even on success `$(...)` captures all
+    four printed lines rather than the port alone. Run `lerobot-find-port` on its
+    own, read the port, paste it in.
+    """
+    if Path(port).exists():
+        print(f"  port OK          {port}")
+        return
+    candidates = sorted(str(p) for p in Path("/dev").glob("tty.usbmodem*"))
+    _fail(
+        f"no such device: {port}\n"
+        + (f"    USB serial devices visible now:\n"
+           + "\n".join(f"      {c}" for c in candidates) if candidates
+           else "    NO USB serial devices are visible at all — is the arm plugged in and powered?")
+        + "\n    To find it:  run `lerobot-find-port` ON ITS OWN (it is interactive and"
+          "\n                 will block invisibly inside $(...)), then paste the port here.",
+        force,
+    )
+
+
 def check_calibration(robot_id: str, force: bool) -> None:
     """Refuse to run unless the active calibration IS the canonical one."""
     active = ACTIVE_CALIB_DIR / f"{robot_id}.json"
@@ -165,7 +190,13 @@ def confirm_cameras(cameras: dict[str, int | str], force: bool) -> None:
         )
         tiles.append(frame)
 
-    cv2.imshow("confirm camera mapping - any key to close", np.hstack(tiles))
+    # cv2.waitKey blocks on a keypress IN THE OPENCV WINDOW, not in the terminal,
+    # and the window can open behind whatever you are looking at. Say so, or this
+    # reads as a second silent hang.
+    print("\n  A window is opening with one tile per camera. It may appear BEHIND this"
+          "\n  terminal. Click the window, press any key to close it, then come back here.",
+          flush=True)
+    cv2.imshow("confirm camera mapping - click me, then press any key", np.hstack(tiles))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
@@ -256,7 +287,8 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    print(f"\n{BANNER}\n  PREFLIGHT\n{BANNER}")
+    print(f"\n{BANNER}\n  PREFLIGHT\n{BANNER}", flush=True)
+    check_port(args.port, args.force)
     check_calibration(args.robot_id, args.force)
     confirm_cameras(args.cameras, args.force)
 

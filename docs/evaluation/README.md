@@ -36,11 +36,18 @@ A policy emits joint angles in **the calibration frame it was trained in**. Run 
 `lerobot-rollout` runs until you stop it. To step through episodes one at a time with a scene reset between each, and no recording or scoring:
 
 ```bash
+lerobot-find-port          # run this FIRST, on its own, and read the port off it
+
 python -m phi.utils.watch_rollouts \
   --model BrutalCaesar/act_so101_cubcyl_recovery_chunk50_noaug_3cam \
-  --port <lerobot-find-port> \
-  --cameras wrist=0,top=1,front=2
+  --port /dev/tty.usbmodemXXXX \
+  --cameras wrist=0,top=1,front=2 \
+  --n-action-steps 15
 ```
+
+> 🚨 **Never write `--port $(lerobot-find-port)`.** That tool is interactive — it prints "Remove the USB cable … and press Enter" and blocks on `input()`. Command substitution swallows the prompt, so the terminal goes completely silent and looks hung forever. On success it also prints four lines, so `$(...)` would capture prose, not a port. Run it separately and paste the value.
+
+`--n-action-steps 15` makes the arm re-plan every 0.5 s instead of every 1.67 s. Measured open-loop drift within one 50-action chunk (`phi.utils.infer_offline`, episode 0, 2026-08-11) rose from 16.1° at steps 0-9 to 37.2° at steps 40-49, so most of the apparent error is staleness rather than the model. It is an inference-time setting and needs no retraining.
 
 It enforces the calibration precondition above and makes you eyeball the camera → key mapping before the arm energises, then rate-limits each joint to 15°/tick so a wrong first action creeps instead of slams. **It produces no numbers by design** — for those use `phi.utils.eval_rollouts`, which owns the partial-credit rubric.
 
