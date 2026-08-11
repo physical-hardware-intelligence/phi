@@ -31,6 +31,19 @@ A policy emits joint angles in **the calibration frame it was trained in**. Run 
 
 ⇒ **Any leaderboard number recorded under a non-canonical calibration is void.** State the calibration you used alongside the number.
 
+### Just want to watch it move?
+
+`lerobot-rollout` runs until you stop it. To step through episodes one at a time with a scene reset between each, and no recording or scoring:
+
+```bash
+python -m phi.utils.watch_rollouts \
+  --model BrutalCaesar/act_so101_cubcyl_recovery_chunk50_noaug_3cam \
+  --port <lerobot-find-port> \
+  --cameras wrist=0,top=1,front=2
+```
+
+It enforces the calibration precondition above and makes you eyeball the camera → key mapping before the arm energises, then rate-limits each joint to 15°/tick so a wrong first action creeps instead of slams. **It produces no numbers by design** — for those use `phi.utils.eval_rollouts`, which owns the partial-credit rubric.
+
 ## The Φ evaluation protocol (do this for every reported number)
 1. **Fixed trial count:** N = 20 rollouts (state it if different).
 2. **Declared initial conditions:** list the object positions / start poses you test (e.g. "cube at 5 grid positions × 4 trials").
