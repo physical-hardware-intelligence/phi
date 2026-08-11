@@ -60,13 +60,11 @@ Reindexing verified by matching episode lengths against `old − {123, 144}` in 
 
 The **145-episode pre-deletion state still exists locally** at `~/.cache/huggingface/lerobot/BrutalCaesar/phi_so101_cubes_cylinder_v1_20260806_161432` and is the only copy of those two episodes. Do not clear that directory until you are certain they are not wanted.
 
-## 🚨 Three episodes ended at the recording time cap
+## Three episodes ended at the recording time cap — ✅ resolved, keep them
 
-Episodes **128, 134, 140** (new indexing) are exactly **750 frames = 25.000 s** — the `episode_time_s` cap, not a natural end.
+Episodes **128, 134, 140** (new indexing) are exactly **750 frames = 25.000 s** — the `episode_time_s` cap, not a natural end. Those three plus the deleted `123` sat at positions **3, 9, 15, 21** of the recording sequence: the **4th take of every block**, spaced exactly 6 apart, which is a periodic grid rather than four independent accidents.
 
-There is a pattern here worth resolving before training: those three plus the deleted `123` sat at positions **3, 9, 15, 21** of the recording sequence — the **4th take of every block**, spaced exactly 6 apart. Four independent accidents do not land on a periodic grid, so the 4th take in each block was probably a distinct condition in the protocol.
-
-**Open question:** did 128 / 134 / 140 complete their recovery before the cap, or were they truncated mid-recovery? If truncated they end in failure with no fix, and per the warning above they should be **excluded from training**, not kept. Unresolved as of 2026-08-10.
+**Resolved 2026-08-10 (Yash, from the video): all three completed their recovery.** They ran long, they did not truncate mid-recovery, so they end on the expert manifold like every other recovery episode. **All 23 are in training; nothing is excluded.**
 
 ## Why one task string, and not per-episode labels
 
