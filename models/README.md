@@ -22,4 +22,4 @@ it is ready.
 
 🚨 **Calibration is a precondition of every number in the Eval column.** A policy emits angles in the calibration frame of the machine that recorded its training data. Run it against a different one and it mis-grasps with no error and no warning — confirmed on the arm 2026-08-10. Copy `configs/calibration/robots/so_follower/phi_follower.json` into `~/.cache/huggingface/lerobot/calibration/robots/so_follower/` first, and diff with `python -m phi.utils.compare_calibration`. Any result taken under a different calibration is **void**, not merely noisy.
 
-🚨 **Zero of the models in this table have a scored rollout.** That is the bottleneck, not model count.
+**Rollout scores live in [`outputs/rollout_scores.csv`](../outputs/rollout_scores.csv)** — aggregate with `python -m phi.utils.eval_rollouts --report`. As of 2026-08-11 that holds **17 scored rollouts, all of them for `act_so101_cubcyl_poshold_chunk50_cvae_3cam`** (held-out: 27% success, 0.418 mean progress; control: 50%, 0.600). Every other model in this table is still unscored.

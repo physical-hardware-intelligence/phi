@@ -37,7 +37,18 @@ Identical to the [control model](act_so101_cubcyl_recovery_chunk50_noaug_3cam.md
 
 ## Eval
 
-**Not run yet.** No success number exists.
+**Not scored yet** — no success number exists for this checkpoint.
+
+The baseline it has to beat IS measured, though. `act_so101_cubcyl_poshold_chunk50_cvae_3cam` (same 3 cameras, same holdout, no recovery data) was scored on 2026-08-10 over 17 rollouts:
+
+| split | n | success | mean progress |
+|---|---:|---:|---:|
+| control (trained on) | 6 | 50% | 0.600 |
+| held out | 11 | 27% | 0.418 |
+
+Held-out by object: red cube 67% · yellow cylinder 25% · **white cube (45mm) 0% (0/4)**.
+
+🔑 The recorded failure mode is the one recovery data targets. Operator note on episode 20: *if not grasped, the gripper just hovers above and closes and opens repetitively.* So the pre-committed prediction for this checkpoint is that hover-and-cycle failures become second attempts — score per stage so a 0.2 → 0.4 shift is visible.
 
 `eval_loss` (full L1 + KL) on the 30 clean held-out episodes:
 

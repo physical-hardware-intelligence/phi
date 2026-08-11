@@ -69,7 +69,7 @@ sbatch --export=ALL,AFFINE_OFF=1 --array=1 configs/hpc/train_recovery.sbatch
 
 **Cannot** — "did the policy get better at recovering?" **No loss can answer this**, because the 30 held-out episodes are all clean and contain no induced failure. Measuring recovery needs a rollout where the object is deliberately displaced or removed mid-episode and you count whether the policy re-approaches.
 
-That rollout protocol is the actual gate on this experiment, and it does not exist yet — see [docs/evaluation](../docs/evaluation/README.md). **19+ models trained, zero scored rollouts** is the standing bottleneck; two more checkpoints do not move it.
+That rollout protocol is the actual gate on this experiment — see [docs/evaluation](../docs/evaluation/README.md). The protocol and tooling DO exist (`phi.utils.eval_rollouts`), and the `cvae_3cam` baseline was scored on 2026-08-10: **27% success / 0.418 mean progress on 11 held-out rollouts**, against 50% / 0.600 on 6 control episodes. So these two checkpoints have something concrete to beat.
 
 ## 🚨 Before any rollout
 
@@ -123,4 +123,15 @@ Two structural limits, both predicted before the runs and both still binding:
 ### Still open
 
 - **The `cvae_3cam` control row is missing.** Comparing against it on the same 30 clean episodes is what answers "did adding recovery data damage clean performance?" — pull its `eval_loss` from the 2026-08-06 run.
-- **Zero scored rollouts.** Three publishable checkpoints, no success rate. Everything above is loss, and loss cannot rank these.
+- **Neither recovery checkpoint is scored yet.** Everything above is loss, and loss cannot rank these. The baseline that they must beat is already measured, though — `cvae_3cam`, 2026-08-10, 17 rollouts:
+
+  | split | n | success | mean progress |
+  |---|---:|---:|---:|
+  | control (trained on) | 6 | 50% | 0.600 |
+  | held out | 11 | 27% | 0.418 |
+
+  Per-object on the held-out set: red cube 67% · yellow cylinder 25% · **white cube (45mm) 0% (0/4)**.
+
+  🔑 **The recorded failure mode is exactly what the recovery data targets.** Operator note from episode 20: *if not grasped, the gripper just hovers above and closes and opens repetitively.* A hover-and-cycle loop with no re-approach is the definition of a policy that cannot recover from a missed grasp. That gives this experiment a sharp, pre-committed prediction: **the recovery checkpoints should convert hover-and-cycle failures into second attempts.** Score it per stage, not just pass/fail, so a 0.2 -> 0.4 shift is visible.
+
+  ⚠️ Also recorded in those notes: *motor blinking - torque overload issue* while grasping. That is hardware and it will confound scoring if it worsens. Check it before attributing a low score to the policy.
