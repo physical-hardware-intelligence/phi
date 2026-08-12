@@ -19,9 +19,14 @@
 set -uo pipefail
 PROJECT=/scratch/$USER/phi
 
-RUNNING=$(squeue -u "$USER" -h -o "%j" | grep -c "^phi-" || true)
-if [ "$RUNNING" -gt 0 ]; then
-  echo "REFUSING: $RUNNING phi job(s) still queued/running. Installing now could break them."
+# Count other phi jobs, EXCLUDING this one. Matching "^phi-" on the name alone
+# makes the guard count itself -- this job is called phi-install-* -- so it
+# refuses to run 100% of the time. That is what happened on 2026-08-12 (job
+# 9088434, FAILED in 1 s). Filter by job id, not by name.
+OTHERS=$(squeue -u "$USER" -h -o "%i %j" \
+         | awk -v me="${SLURM_JOB_ID:-0}" '$1 != me && $2 ~ /^phi-/' | wc -l | tr -d ' ')
+if [ "$OTHERS" -gt 0 ]; then
+  echo "REFUSING: $OTHERS other phi job(s) queued/running. Installing now could break them."
   squeue -u "$USER" -o "%.14i %.18j %.8T"
   exit 1
 fi
