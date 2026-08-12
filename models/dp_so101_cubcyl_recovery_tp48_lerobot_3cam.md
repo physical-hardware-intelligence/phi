@@ -36,6 +36,8 @@ Same preconditions as the [ACT models](act_so101_cubcyl_recovery_chunk50_noaug_3
 
 ## Eval
 
-**Not scored on the arm.** Baseline to beat (ACT `cvae_3cam`, 11 held-out rollouts): **27% success / 0.418 mean progress**; white cube **0% (0/4)**.
+**Not scored on the arm**, and it is a low priority — it lost the encoder A/B at every eval point, and its winning sibling [`..._paper_3cam`](dp_so101_cubcyl_recovery_tp48_paper_3cam.md) is already scored at **50% success / 0.650 mean progress** (12 held-out, 2026-08-12), statistically tied with ACT. Rolling this arm out would test whether the loss gap (0.0222 vs 0.0173 at 20k) shows up on the arm at all — but since noise-MSE turned out **not** to predict task success for the paper arm, that question is now less interesting than the resolution and dense-checkpoint experiments.
+
+For reference, the no-recovery baseline (ACT `cvae_3cam`, 11 held-out rollouts): **27% success / 0.418 mean progress**; white cube **0% (0/4)**.
 
 ⚠️ DP's `eval_loss` is noise-MSE and is **not comparable** to ACT's L1+KL. DP vs ACT is a rollout question only, and carries three confounds: 216×288 vs 480×640 input, 800 ms vs 1670 ms commit, and encoder init.

@@ -124,10 +124,84 @@ An EMA of the weights is a strong implicit regulariser. Its absence reframes thi
 
 `eval_loss` here is noise-prediction MSE, and this write-up has argued from the start that it is a poor proxy for task success — the loss averages over uniformly sampled diffusion timesteps, and the easy high-noise regime dominates while the hard low-noise regime sets action precision. **So a 4× degradation on this metric is a strong negative signal, not proof the policies are unusable.** Only a rollout settles it.
 
-### Next steps, in priority order
+## Rollouts (2026-08-12) — the loss was wrong about everything
 
-1. **Re-run 20k steps with `save_freq=2000`** (~82 min at the measured 4.07 steps/s) to capture the actual optimum at or below 10k.
-2. **Roll out the existing 20k checkpoint regardless.** If it grasps acceptably, that is a genuinely useful result about how little held-out noise-MSE tells us.
-3. **Regularisation arms worth testing** in the short re-run, since EMA is not available without writing it: image augmentation on (`dataset.image_transforms.enable=true`), and/or raising `optimizer_weight_decay` from the paper's 1e-6.
+Task 0 (`paper`, 20k) rolled out on the arm, 15 episodes, canonical `phi_follower` calibration, same rubric and same held-out episodes as the ACT runs. Task 1 (`lerobot`) not rolled out.
 
-Rollout baseline to beat, from the ACT work — `cvae_3cam`, 2026-08-10, 11 held-out rollouts: **27% success / 0.418 mean progress**; per-object red cube 67%, cylinder 25%, **white cube 0%**.
+| held-out | `cvae_3cam` (no recovery) | `recovery_noaug` (ACT, 100k) | **DP `paper` (20k)** |
+|---|---:|---:|---:|
+| n | 11 | 11 | 12 |
+| success | 27% | **55%** | 50% |
+| mean progress | 0.418 | 0.636 | **0.650** |
+| red cube | 2/3 (0.73) | 1/3 (0.47) | 2/4 (0.75) |
+| yellow cylinder | 1/4 (0.40) | 3/4 (0.80) | 3/4 (0.80) |
+| white cube (45 mm) | 0/4 (0.20) | **2/4 (0.60)** | 1/4 (0.40) |
+
+DP control split (trained-on episodes 5/50/95): 2/3, mean 0.733.
+
+### 🔑 The headline: held-out noise-MSE did not predict task success
+
+This write-up argued before any rollout that DP's `eval_loss` was a poor proxy, and that "a 4× degradation is a strong negative signal, **not proof the policies are unusable**." The rollouts vindicate the hedge and go further: **the signal was worthless.**
+
+A checkpoint we *knew* was past its optimum, from a run whose held-out loss rose monotonically 4×, **matched a 100k-step ACT model and posted the highest mean progress of the three.** ⇒ Do not use DP noise-MSE for model selection or early stopping on this task. Next-step #1 below is demoted accordingly: chasing the 10k optimum now optimises a metric with no demonstrated link to grasping.
+
+### DP vs ACT: a dead heat
+
+Paired over the 11 held-out episodes both models ran:
+
+```
+  ep       0     1    21    45    46    65    66    90    91   110   111
+  ACT    0.2   1.0   0.2   1.0   1.0   1.0   0.2   1.0   0.2   0.2   1.0
+  DP     0.2   1.0   0.8   1.0   1.0   0.2   1.0   1.0   0.2   0.2   0.2
+  delta +0.0  +0.0  +0.6  +0.0  +0.0  -0.8  +0.8  +0.0  +0.0  +0.0  -0.8
+
+  mean delta -0.018   sd 0.477   se 0.144   t(10) = -0.13
+  DP better on 2, worse on 2, tied on 7   sign test p = 1.000
+```
+
+Against the baseline, DP is **+0.218** (t = 1.15, p = 0.453) — the same direction and nearly the same magnitude as ACT's **+0.240** (t = 1.41, p = 0.375). Two independently trained architectures agreeing on the sign is worth more than either test; **neither is resolved at n ≈ 11.** Detecting an effect this size at 80% power needs **n ≈ 40**.
+
+⚠️ **Pairing bought almost no power** (se 0.171 paired vs 0.179 unpaired on the ACT comparison). Half the episodes tie at the 0.2 floor, so the scores behave as near-binary and variance stays high. **The cheap fix is repeat trials on already-staged scenes, not more scenes** — staging dominates the cost, `--episodes` accepts duplicates, and repeats attack exactly this variance.
+
+### ✅ The Ta=24 sizing decision was correct
+
+Median wall time per rollout: **DP 67 s** vs ACT 69 s, and a tighter spread (56-95 s vs 60-153 s). No stutter, no slow-FPS warnings. The 294 ms measured chunk cost fit inside the 800 ms budget in practice, exactly as the control-rate section predicted. Had we copied Table 7's `Ta=8`, this would have missed every chunk.
+
+### Prediction 3: WRONG on the fair comparison
+
+Predicted: *"DP should beat ACT on the white cube, which ACT failed 0/4 on."* DP got **1/4**; recovery-trained ACT got **2/4**. DP beat the *baseline* (25% vs 0%) but the baseline is not the right comparison — the recovery-trained ACT is, and DP lost to it.
+
+⇒ **Two of three pre-registered predictions were wrong** (1 and 3). The multimodality argument for DP on the ambiguous-grasp object did not survive contact with the arm.
+
+### DP's failure mode is contact precision, and it is not ACT's
+
+ACT failed mostly by hovering and reach errors. DP's failures are positioned correctly and fail at closure. Operator notes:
+
+> ep 0 — *"at the right location but just was not able to lock in"*
+> ep 65 — *"one of the fingers was just tapping on the object"*
+> ep 95 — *"stayed a considerable time around the top of the container, which has not been seen before"*
+
+Two candidate causes, distinguishable by experiment:
+
+1. **Input resolution.** 216×288 → a 7×9 ResNet grid, vs ACT's 480×640 → 15×20. Grasping a 25 mm cube is a millimetre-scale problem. This was confound #1 of the pre-registration and now has a matching symptom. **Test: re-train DP at ACT's resolution.**
+2. **Overfitting concentrated in the low-noise regime**, which sets fine action detail and which the uniformly-sampled loss under-weights. **Test: the 10k checkpoint** — which does give the dense-checkpoint re-run a purpose, just a different one than "recover the optimum."
+
+**Ruled out: open-loop horizon.** DP re-plans *more* often than ACT (800 ms vs 1670 ms), which predicts the opposite sign.
+
+### One genuine recovery behaviour, not yet general
+
+> ep 90 (success, approach `m`) — *"Initially, it landed in front of the object, but... it was able to lean back and then grab it again and was able to do it successfully."*
+
+**First documented retry-after-failed-grasp in this project** — the 23 recovery episodes doing what they were collected for. It does not generalise: ep 110 *"not able to return back and then grasp"*, ep 65 *"not able to learn from failures."* One of three opportunities.
+
+### Baseline-comparison confound, stated plainly
+
+The baseline's 11 rollouts predate the base-clamp discovery ([setup §3b-bis](../docs/robots/so-arm101/02-setup.md)), so the rig may not have been byte-identical. Working *against* that worry: the 2026-08-12 control rollouts (ACT 33% n=3, DP 67% n=3) were not systematically better than the baseline's controls (50%, n=6), so the rig does not look easier today.
+
+### Next steps, revised after the rollouts
+
+1. **Add power before adding models.** Repeat trials on the 12 staged held-out scenes (3× = 36 rollouts, 12 stagings) for ACT and DP. This is the only cheap route to resolving a ±0.22 effect, and everything below is uninterpretable without it.
+2. **Test the resolution hypothesis** — re-train DP with `resize_shape` at ACT's 480×640 (or an intermediate step). This is the leading explanation for the contact-precision failure and it is a clean controlled change.
+3. **Re-run 20k with `save_freq=2000`** — now motivated by hypothesis 2 (does the low-noise regime degrade?) rather than by "recover the best loss," since the loss is discredited as a task proxy.
+4. **Regularisation arms**, since EMA is unavailable without writing it: `dataset.image_transforms.enable=true`, and/or `optimizer_weight_decay` above the paper's 1e-6. Lower priority than 1 and 2.
+5. **Free control worth taking**: re-run ACT with `--n-action-steps 24` to match DP's commit horizon, no retraining. Removes confound #2 from the table above for the cost of 12 rollouts.

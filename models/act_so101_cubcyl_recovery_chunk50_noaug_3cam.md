@@ -39,18 +39,32 @@ This dataset was recorded on Yash's laptop, so the policy emits angles in **his*
 
 ## Eval
 
-**Not scored yet** — no success number exists for this checkpoint.
-
-The baseline it has to beat IS measured, though. `act_so101_cubcyl_poshold_chunk50_cvae_3cam` (same 3 cameras, same holdout, no recovery data) was scored on 2026-08-10 over 17 rollouts:
+Scored on the arm **2026-08-12**, 14 rollouts, canonical `phi_follower` calibration.
 
 | split | n | success | mean progress |
 |---|---:|---:|---:|
-| control (trained on) | 6 | 50% | 0.600 |
-| held out | 11 | 27% | 0.418 |
+| control (trained on) | 3 | 33% | 0.533 |
+| **held out** | **11** | **55%** | **0.636** |
 
-Held-out by object: red cube 67% · yellow cylinder 25% · **white cube (45mm) 0% (0/4)**.
+Held-out by object: red cube 1/3 (0.47) · yellow cylinder 3/4 (0.80) · **white cube (45 mm) 2/4 (0.60)**.
 
-🔑 The recorded failure mode is the one recovery data targets. Operator note on episode 20: *if not grasped, the gripper just hovers above and closes and opens repetitively.* So the pre-committed prediction for this checkpoint is that hover-and-cycle failures become second attempts — score per stage so a 0.2 → 0.4 shift is visible.
+Against the no-recovery baseline `act_so101_cubcyl_poshold_chunk50_cvae_3cam` (2026-08-10, 17 rollouts — control 6, 50%, 0.600; held out 11, **27%, 0.418**; white cube **0/4**):
+
+| held-out | baseline | **this model** | [DP](dp_so101_cubcyl_recovery_tp48_paper_3cam.md) |
+|---|---:|---:|---:|
+| success | 27% | **55%** | 50% |
+| mean progress | 0.418 | **0.636** | 0.650 |
+| white cube | 0/4 | **2/4** | 1/4 |
+
+**The white cube went 0/4 → 2/4** — the pre-registered target of the recovery data, and the clearest single movement in the whole evaluation.
+
+⚠️ **But the aggregate improvement is not statistically resolved.** Paired over the 10 common held-out episodes: mean delta **+0.240**, sd 0.540, se 0.171, **t(9) = 1.41**; better on 4, worse on 1, tied on 5; sign test **p = 0.375**. Pairing bought almost no power here (se 0.171 paired vs 0.179 unpaired) because half the episodes tie at the 0.2 floor — the scores are nearly binary, so variance stays high. Detecting an effect this size at 80% power needs **n ≈ 40**.
+
+Two things that raise confidence above what that test alone shows: the direction is consistent, and DP trained on the same recovery data independently posted **+0.218** over the same baseline.
+
+⚠️ **Baseline-comparison confound.** The baseline's rollouts predate the base-clamp discovery ([setup §3b-bis](../docs/robots/so-arm101/02-setup.md)), so the rig may not have been identical. Working *against* that worry: this session's controls (33%, n=3) were **worse** than the baseline's (50%, n=6), so the rig does not look easier today.
+
+🔑 **This model beat the baseline; it did not beat DP.** Paired DP − ACT = −0.018 (t = −0.13, 7 of 11 episodes tied). Treat ACT and DP as tied on this task.
 
 `eval_loss` (full L1 + KL) on the 30 clean held-out episodes:
 
