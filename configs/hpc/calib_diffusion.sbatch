@@ -40,6 +40,15 @@ STEPS=250            # enough for the averages to settle, cheap enough to be fre
 LOG_FREQ=25
 TARGET_STEPS=100000  # what the real run will do, for the projection
 
+# Dataloader workers. Override to test the loader ceiling:
+#   sbatch --cpus-per-task=32 --array=0 --export=ALL,NUM_WORKERS=32 configs/hpc/calib_diffusion.sbatch
+# Measured 2026-08-12 at NUM_WORKERS=16: the loader saturates near ~1,200
+# decoded frames/s REGARDLESS of batch size (192 x 5.77 = 1,108 at batch 32;
+# 384 x 3.31 = 1,271 at batch 64). So batch 64 is not intrinsically slower --
+# compute per step was actually LOWER at 64 (145.7 vs 156.4 ms) because the H200
+# is nowhere near saturated. The whole penalty is loader throughput.
+NUM_WORKERS=${NUM_WORKERS:-16}
+
 case $SLURM_ARRAY_TASK_ID in
   0) BATCH=64; TAG=b64 ;;   # the paper's image-based batch size
   1) BATCH=32; TAG=b32 ;;   # the fallback if 64 will not fit the wall clock
@@ -80,7 +89,7 @@ echo " CALIBRATION  task $SLURM_ARRAY_TASK_ID  batch=$BATCH"
 echo " To/Ta/Tp = $TO/$TA/$TP   drop_n_last_frames=$DROP"
 echo " down_dims=(256,512,1024)  resize=240x320 crop_ratio=0.9 -> 216x288"
 echo " group_norm=true  pretrained=None  DDIM 100/16"
-echo " images per step: $((BATCH * TO * 3)) at 216x288"
+echo " images per step: $((BATCH * TO * 3)) at 216x288   num_workers=$NUM_WORKERS"
 echo " node $(hostname)"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "=============================================================="
@@ -112,7 +121,7 @@ srun lerobot-train \
   --batch_size=$BATCH \
   --steps=$STEPS \
   --log_freq=$LOG_FREQ \
-  --num_workers=16 \
+  --num_workers=$NUM_WORKERS \
   --seed=1000 \
   --save_checkpoint=false \
   --wandb.enable=false \

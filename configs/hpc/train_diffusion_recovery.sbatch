@@ -1,5 +1,5 @@
 #!/bin/bash
-# ─────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────
 # Φ — Diffusion Policy on phi_so101_cubes_cylinder_recovery_v1.
 #     A/B on the vision encoder: the paper's recipe vs lerobot's default.
 #
@@ -8,11 +8,31 @@
 #   Paper   : Chi et al., Diffusion Policy (arXiv 2303.04137), Table 7 real-world rows
 #   W&B     : project phi_dp   (NOT phi-act -- that project houses the ACT models)
 #
-#   🚨 BEFORE SUBMITTING: set BATCH and NUM_WORKERS from calibration job 9088308.
-#      Defaults below are the paper's batch 64 and 16 workers, UNVERIFIED against
-#      this cluster's wall clock. If calibration says 100k steps does not fit 8h,
-#      drop BATCH to 32. If it says data_s is >35% of step time, the fix is
-#      NUM_WORKERS / PREFETCH, not batch size.
+#   SIZED FROM CALIBRATION (jobs 9088440, 9088457), measured 2026-08-12:
+#
+#     batch  workers   compute   loader    total   100k steps   fits 8h wall
+#        32       16    156.4     17.0     173.4      4.82 h    yes, big margin
+#        64       16    145.7    156.4     302.1      8.39 h    NO
+#        64       32    139.2    106.4     245.7      6.82 h    yes, 1.18 h margin  <-- THIS
+#
+#   Chose batch 64 + 32 workers: it is the paper's batch size (section A.4, "64 for
+#   all image-based experiments") and sees 2x the samples in 100k steps, which
+#   matters most for task 0, whose encoder trains from scratch.
+#
+#   Two things the calibration showed that are worth not forgetting:
+#     * COMPUTE PER STEP IS FLAT in batch size -- 156 ms at 32, 139 ms at 64. The
+#       H200 is nowhere near saturated (12% memory at batch 64), so a bigger batch
+#       is nearly free in GPU time. The cost is entirely the dataloader.
+#     * THE LOADER CEILING IS NOT WORKER COUNT. Doubling 16->32 workers moved
+#       throughput only 1,271 -> 1,563 frames/s (1.23x for 2x workers). Probably
+#       /scratch read bandwidth or memory contention. Do not expect more workers
+#       to keep buying time.
+#
+#   🚨 MARGIN IS 1.18 h ON AN 8 h WALL (15%). If the node is busier than during
+#      calibration, data_s rises and this can time out near ~95k steps. That is
+#      survivable, not fatal: save_freq=20000 means the worst case loses the last
+#      20k steps, and lerobot supports --resume=true to continue from the last
+#      checkpoint. Do not "fix" it by cutting save_freq.
 #
 #   Prefetch: already done for this dataset by job 9066698.
 #   Submit:  sbatch configs/hpc/train_diffusion_recovery.sbatch
@@ -20,7 +40,7 @@
 #SBATCH --job-name=phi-dp-recovery
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:h200:1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=64G
 #SBATCH --time=08:00:00
 #SBATCH --array=0-1
@@ -31,9 +51,9 @@ set -uo pipefail
 PROJECT=/scratch/$USER/phi
 REPO_ID=BrutalCaesar/phi_so101_cubes_cylinder_recovery_v1
 
-# ── SET THESE FROM CALIBRATION 9088308 ──────────────────────────────────────
-BATCH=${BATCH:-64}                  # paper: 64 for all image-based experiments
-NUM_WORKERS=${NUM_WORKERS:-16}
+# ── SET FROM CALIBRATION 9088440 / 9088457 (see header table) ───────────────
+BATCH=${BATCH:-64}                  # paper section A.4: 64 for all image-based experiments
+NUM_WORKERS=${NUM_WORKERS:-32}   # matches --cpus-per-task=32 above
 # ────────────────────────────────────────────────────────────────────────────
 
 STEPS=100000
