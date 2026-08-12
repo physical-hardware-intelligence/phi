@@ -138,6 +138,32 @@ Measured on our arm (2026-08-07): two calibrations of **the same follower** by t
 
 **So, at that prompt: set `wrist_roll` to a repeatable physical landmark** — jaws level and untwisted, parallel to the table edge. (Same pose that keeps your ±180° of teleop travel symmetric — see [troubleshooting](troubleshooting.md#calibration--teleop).) **And push every other joint firmly into both hard stops:** stop short on one side only and `mid` moves half your shortfall. In that same comparison, an 86-tick difference in how far `shoulder_pan` was swept became a **4.2° base-yaw offset ≈ 18 mm** of sideways error at the gripper — most of a 25 mm cube.
 
+### 3b-bis. 🚨 Where the BASE is clamped is part of the frame, and calibration is blind to it
+
+**Confirmed on the arm, 2026-08-11.** The follower was re-clamped to the table and ended up shifted right of where it sat during data collection. Every policy then reached **right of the object**. Moving the base back to its original position fixed it.
+
+Nothing in this document catches that, and neither does any file:
+
+| what you would check | why it cannot see a base shift |
+|---|---|
+| `phi_follower.json` is identical | it encodes joint → angle, not arm → world |
+| dataset extremes land on the calibration's stops | joint limits are intrinsic to the arm |
+| `observation.state` distribution looks normal | those are joint angles, not Cartesian position |
+
+**A policy outputs joint angles. Those angles were correct for the base position during recording.** Move the base 15 mm and the identical angles put the gripper 15 mm off, while every number in every config file stays the same. The arm has no proprioceptive access to where its own base is — its only knowledge of "where things are" comes from the cameras, which is why this presents as a perception problem while being a mounting problem.
+
+**Symptom:** a *systematic, one-directional* miss, including on episodes the policy was trained on. If control episodes fail, suspect the rig before the policy — that is what they are for.
+
+**How to check, and how to fix it:** the recorded frames are the alignment target.
+
+```bash
+python -m phi.utils.replay_compare --episode 5 --port <port> --cameras wrist=0,top=1,front=2
+```
+
+Flick between `recorded/top` and `live/top`. If the arm sits at a different place in the frame while the cube and box sit where they always did, the base moved. Nudge the clamp until the live view matches the recording.
+
+⇒ **Mark the clamp position on the table.** It is a load-bearing part of the dataset that nothing in software records.
+
 ### 3c. Moving a trained policy to someone else's machine
 
 > ### ✅ Confirmed on the arm, 2026-08-10 — this is not a theoretical risk
