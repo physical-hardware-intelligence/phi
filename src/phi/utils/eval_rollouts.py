@@ -373,7 +373,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", help="HF id or local pretrained_model dir")
-    ap.add_argument("--dataset", help="dataset name substring or --list index")
+    ap.add_argument("--dataset", help="dataset name substring or index "
+                                      "(list them with: python -m phi.utils.camera_realign --list)")
     ap.add_argument("--episodes", help=f"comma list (default: {CONTROL_EPISODES} then {DEFAULT_EPISODES})")
     ap.add_argument("--controls", type=int, default=len(CONTROL_EPISODES),
                     help="how many trained-on control episodes to run first (0 to skip)")
