@@ -86,11 +86,48 @@ This is **method vs method as published**, not a controlled comparison of action
 
 ## Results
 
-_Pending — array `9088486`._
+Both tasks **COMPLETED**, 100k steps, 98.4 epochs, zero errors. `eval_loss` = noise-prediction MSE on the 30 clean held-out episodes.
 
-| Run | encoder | @20k | @40k | @60k | @80k | @100k | wall |
-|---|---|---|---|---|---|---|---|
-| `dp_recovery_3cam_paper_tp48_b64` | GroupNorm + scratch | | | | | | |
-| `dp_recovery_3cam_lerobot_tp48_b64` | BatchNorm + ImageNet | | | | | | |
+| step | 10k | 20k | 30k | 40k | 50k | 60k | 70k | 80k | 90k | 100k |
+|---|---|---|---|---|---|---|---|---|---|---|
+| task 0 `paper` (GroupNorm + scratch) | **0.0155** | 0.0173 | 0.0219 | 0.0248 | 0.0311 | 0.0369 | 0.0454 | 0.0532 | 0.0635 | 0.0636 |
+| task 1 `lerobot` (BatchNorm + ImageNet) | **0.0173** | 0.0222 | 0.0271 | 0.0315 | 0.0389 | 0.0453 | 0.0563 | 0.0661 | 0.0805 | 0.0803 |
+
+Final train loss **0.002** for both. Held-out loss rose **~4×** while train loss fell — a ~32× train/eval gap. **Monotonic overfitting that began before the first measurement.**
+
+### Prediction 1: WRONG, and consistently
+
+I predicted task 1 (ImageNet + BatchNorm) would win. **Task 0 beat it at every single eval point**, and the gap widens with training. So on this dataset the paper's spatial-softmax + GroupNorm encoder generalises better than an ImageNet prior — the outcome I labelled "the more interesting one."
+
+Not a marginal call: 0.0155 vs 0.0173 at their respective bests, and 0.0636 vs 0.0803 at 100k.
+
+### 🚨 The optimum is at 10k, and 10k was not checkpointed
+
+`save_freq=20000`, so checkpoints exist at 20k/40k/60k/80k/100k. **The best held-out point is 10k for both runs — the earliest step measured, and one we did not save.** The best *available* checkpoints are therefore 20k: 0.0173 (task 0) and 0.0222 (task 1), both already past the optimum.
+
+This was a judgement error, recorded so it is not repeated. Yash asked directly, at ~47 min in, whether we should have checkpointed at 10k. I said the risk was real but there was "zero evidence the optimum is below 20k" and advised against restarting. Two things I already knew should have outweighed that:
+
+* ~100 epochs over **113 training episodes** is an enormous number of passes.
+* The ACT augmented arm in this same project had **already** shown "last checkpoint is not best" (80k beat 100k).
+
+I also said I would set a watch to report each `eval_loss` as it appeared, and did not. The `20k > 10k` signal existed roughly 1.5 h in; a watch would have caught it and allowed a restart with dense checkpoints instead of spending 5+ further hours confirming a monotonic curve.
+
+⇒ **`save_freq=10000` or denser is the default for DP from now on.** Checkpoints are ~1.2 GB (102 M params plus optimizer state); ten of them is ~12 GB on `/scratch`. Disk was never the reason to save sparsely — 20000 was inherited from the ACT script without re-examination.
+
+### Leading explanation for the severity: the missing EMA
+
+Flagged before the run and now load-bearing. **lerobot implements no EMA** (no `EMAModel`, no `use_ema` anywhere in the package), while the paper's §3.2 recipe explicitly assumes one — its stated reason for GroupNorm is that normalisation choice mattering *"when the normalization layer is used in conjunction with"* weight averaging.
+
+An EMA of the weights is a strong implicit regulariser. Its absence reframes this from "our dataset is too small" to **"we removed the paper's regulariser and then trained for 98 epochs."** That is a testable claim, not a conclusion — see next steps.
+
+### What is still unknown
+
+`eval_loss` here is noise-prediction MSE, and this write-up has argued from the start that it is a poor proxy for task success — the loss averages over uniformly sampled diffusion timesteps, and the easy high-noise regime dominates while the hard low-noise regime sets action precision. **So a 4× degradation on this metric is a strong negative signal, not proof the policies are unusable.** Only a rollout settles it.
+
+### Next steps, in priority order
+
+1. **Re-run 20k steps with `save_freq=2000`** (~82 min at the measured 4.07 steps/s) to capture the actual optimum at or below 10k.
+2. **Roll out the existing 20k checkpoint regardless.** If it grasps acceptably, that is a genuinely useful result about how little held-out noise-MSE tells us.
+3. **Regularisation arms worth testing** in the short re-run, since EMA is not available without writing it: image augmentation on (`dataset.image_transforms.enable=true`), and/or raising `optimizer_weight_decay` from the paper's 1e-6.
 
 Rollout baseline to beat, from the ACT work — `cvae_3cam`, 2026-08-10, 11 held-out rollouts: **27% success / 0.418 mean progress**; per-object red cube 67%, cylinder 25%, **white cube 0%**.
