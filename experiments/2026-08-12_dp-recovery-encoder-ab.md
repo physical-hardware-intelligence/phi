@@ -62,6 +62,8 @@ Two things the naive reading gets backwards:
 1. **Compute per step is flat in batch size** — 139 ms at 64 vs 156 ms at 32, with peak memory 12% of an H200. The GPU is far from saturated, so the batch-64 penalty was *entirely* the dataloader. "Batch 64 doesn't fit, use 32" was wrong; "feed it faster" was right.
 2. **The loader ceiling is not worker count.** I predicted 2× workers would halve `data_s`; it fell 32% (1,271 → 1,563 decoded frames/s). Sub-linear, so the bottleneck is more likely `/scratch` read bandwidth or memory contention. Do not expect more workers to keep buying time.
 
+⚠️ **CORRECTION, 2026-08-13 — `data_s` is not a stable property of the configuration.** The transformer calibration (job `9145018`) ran the *same* dataset, batch 64, 32 workers and pyav decode path, and measured `data_s` at **46.6 and 49.9 ms** against the 106.4 ms above — a **2.2× swing** with nothing in the configuration changed. So the "43% dataloader-bound" verdict was a property of that node at that moment, not of this setup, and the sizing table below should be read as carrying roughly ±2× uncertainty on its loader term. Point 2's reasoning (the ceiling is `/scratch` bandwidth or contention, not worker count) is *strengthened* by this — contention is exactly what varies run to run — but any future plan that leans on a specific `data_s` figure needs its own calibration on the node it will actually run on.
+
 ⚠️ **15% margin on a hard `MaxTime=08:00:00`.** A busier node can push this to a timeout near ~95k steps. `save_freq=20000` caps the loss at the last 20k steps and `--resume=true` exists.
 
 ## Pre-registered predictions

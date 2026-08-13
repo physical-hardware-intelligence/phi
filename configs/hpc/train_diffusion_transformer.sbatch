@@ -156,7 +156,10 @@ source "$PROJECT/repo/configs/hpc/_preflight.sh"
 
 # --- fail fast if the port is not synced --------------------------------------
 python - <<'PY' || { echo "❌ the transformer port is not importable on this node."; \
-                     echo "   Fix: cd $PROJECT/repo && git pull"; exit 1; }
+                     echo "   Fix: rsync from the Mac -- \$PROJECT/repo is an rsync SNAPSHOT,"; \
+                     echo "        not a git checkout (see docs/hpc/explorer.md):"; \
+                     echo "        rsync -a --exclude .git/ --exclude __pycache__/ --exclude '._*' \\"; \
+                     echo "          ./ explorer:\$PROJECT/repo/"; exit 1; }
 import phi.policies.dp_transformer as M
 from lerobot.policies.factory import get_policy_class
 cls = get_policy_class("diffusion_transformer")

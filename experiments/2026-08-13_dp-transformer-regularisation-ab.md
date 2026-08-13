@@ -85,6 +85,36 @@ Verified before submission: **9,020,934** backbone params against Table 8's "9",
 
 **Bucket the loss by diffusion timestep `k` before drawing conclusions.** A single averaged `eval_loss` blends the near-free `k>90` regime — where `√ᾱ = 0.0005`, so the input essentially *is* the noise and predicting it is nearly copying — with the `k<5` regime, where recovering `eps` means dividing by `0.0251` and any residual uncertainty about the true action is amplified ~40×. Only the second regime sets whether the gripper closes, and it is exactly the failure mode the DP rollouts showed.
 
+## Calibration (job `9145018`, 2026-08-13) — width is free
+
+250 steps, batch 64, 32 workers, H200.
+
+| | backbone params | compute | loader | total | steps/s | peak GPU |
+|---|---:|---:|---:|---:|---:|---:|
+| `n_emb=256` | 9,020,934 | 172.8 ms | 49.9 ms | **222.7 ms** | 4.49 | 16,332 MiB (11%) |
+| `n_emb=768` | 80,540,166 | 177.2 ms | 46.6 ms | **223.8 ms** | 4.47 | 18,596 MiB (13%) |
+
+30,000 steps → **1.86 h**; 100,000 → 6.2 h. Both fit the 8 h wall with room.
+
+### 🔑 An 8.9× parameter difference costs 0.5% of wall time
+
+Adding 71.5M parameters to the denoiser cost **4.4 ms/step**. That is direct evidence the GPU is **not FLOP-limited on the backbone**: if it were, 8.9× the parameters would cost meaningfully more.
+
+Leading explanation, marked as such: 48 tokens × 256 dims is tiny work per kernel, so 8 layers × 3 sublayers of small launches leave an H200 mostly idle and wall time is set by launch overhead rather than arithmetic. **[Hypothesis — kernel launches not profiled.]**
+
+Two consequences:
+
+* **`n_emb=768` is free.** If 256 underfits, the 80.5M fallback costs nothing in wall time. That removes width from the list of things to economise on.
+* **A Mac micro-benchmark of the backbone alone is misleading.** Timing `TransformerForDiffusion` at batch 1 on CPU gave "2.8× faster than the UNet per denoising step". On a real training step the 33.6M vision encoder chewing 384 images at 216×288 dominates, and that measurement does not transfer.
+
+### The transformer is *slower* in compute than the UNet, not faster
+
+172.8 ms against the CNN's 139.2 ms, despite a backbone 7.6× smaller. Consistent with the same launch-bound picture: convolutions over a 48-step axis map onto far fewer, larger kernels than 24 attention/FFN sublayers do.
+
+### ⚠️ `data_s` is not reproducible across nodes
+
+46.6 / 49.9 ms here against 106.4 ms in the CNN calibration — same dataset, batch, workers and decode path. A 2.2× swing from node assignment or `/scratch` contention. The CNN write-up's "43% dataloader-bound" has been corrected accordingly. **Do not carry a `data_s` figure between runs; re-calibrate.**
+
 ## Results
 
-_Not yet run._
+_Training not yet run._

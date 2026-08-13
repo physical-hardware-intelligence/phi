@@ -105,20 +105,26 @@ source "$PROJECT/repo/configs/hpc/_preflight.sh"
 #    Prefetch (detached, survives an SSH drop — srun does not):
 #      sbatch --partition=short --cpus-per-task=4 --mem=16G --time=00:30:00 \
 #        configs/hpc/_prefetch_redcube.sh
-HF_HUB_OFFLINE=1 python - "$REPO_ID" <<'PY' || exit 1
-import sys
-try:
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
-    ds = LeRobotDataset(sys.argv[1])
-except Exception as e:
-    sys.exit(f"dataset not prefetched ({type(e).__name__}: {e})\n"
+#    Do NOT gate this with HF_HUB_OFFLINE=1. LeRobotDataset resolves the version
+#    TAG (v3.0) through the Hub API even when every file is already cached, so
+#    offline mode fails with OfflineModeIsEnabled on a perfectly good cache.
+#    Check the cache on disk instead — no network, no API, no false negative.
+python - "$REPO_ID" <<'PY' || exit 1
+import glob, json, os, sys
+repo = sys.argv[1]
+cache = os.path.join(os.environ["HF_LEROBOT_HOME"], "hub",
+                     "datasets--" + repo.replace("/", "--"), "snapshots", "*", "meta", "info.json")
+hits = sorted(glob.glob(cache))
+if not hits:
+    sys.exit(f"dataset not prefetched (no snapshot matching {cache})\n"
              f"Submit configs/hpc/_prefetch_redcube.sh with sbatch first.")
-m = ds.meta
-cams = [k for k in m.features if "image" in k]
-print(f"dataset OK: {m.total_episodes} episodes, {m.total_frames} frames, fps {m.fps}")
+m = json.load(open(hits[-1]))
+cams = [k for k in m["features"] if "image" in k]
+print(f"dataset OK: {m['total_episodes']} episodes, {m['total_frames']} frames, fps {m['fps']}")
 print("cameras present:", cams)
+print("snapshot:", os.path.dirname(os.path.dirname(hits[-1])))
 assert len(cams) == 3, f"expected 3 cameras, found {cams}"
-assert m.total_episodes == 20, f"expected 20 episodes, found {m.total_episodes}"
+assert m["total_episodes"] == 20, f"expected 20 episodes, found {m['total_episodes']}"
 PY
 
 # W&B: online only if a credential already exists, else log to disk and sync later.
