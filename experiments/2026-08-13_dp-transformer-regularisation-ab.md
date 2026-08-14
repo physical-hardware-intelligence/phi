@@ -81,7 +81,7 @@ Verified before submission: **9,020,934** backbone params against Table 8's "9",
 
 **It is evidence about the CNN's overfit, not proof about it.** DP-T differs from DP-CNN in more than regularisation: 9,020,934 backbone params against 68,665,222, and a different architecture. Strictly, this tests whether regularisation controls overfitting *in DP-T*.
 
-**`eval_loss` is a training-health signal here, not a model-selection criterion.** The 2026-08-12 rollouts settled that: a DP checkpoint whose held-out noise-MSE had risen 4× still scored 50% / 0.650 on the arm, statistically tied with a 100k-step ACT model. Held-out noise-MSE did not predict task success.
+**Treat `eval_loss` as a training-health signal here, and note that its value for model selection is UNKNOWN.** ⚠️ *Corrected 2026-08-13 — this line previously said the 2026-08-12 rollouts "settled that" a 4×-degraded checkpoint scored 50% on the arm. Both halves were wrong.* The rolled-out checkpoint was **20k at 1.12× its optimum** (0.0173 vs 0.0155), not 4×; the 4×-degraded 100k checkpoint was never rolled out. And with **one** DP checkpoint at **n=12 (~29% power)**, nothing about the metric's predictive value was settled in either direction.
 
 **Bucket the loss by diffusion timestep `k` before drawing conclusions.** A single averaged `eval_loss` blends the near-free `k>90` regime — where `√ᾱ = 0.0005`, so the input essentially *is* the noise and predicting it is nearly copying — with the `k<5` regime, where recovering `eps` means dividing by `0.0251` and any residual uncertainty about the true action is amplified ~40×. Only the second regime sets whether the gripper closes, and it is exactly the failure mode the DP rollouts showed.
 
@@ -146,7 +146,7 @@ _Note: `paper` has **converged**, not "still improving". Its last three points a
 1. Table 8's strength (wd 1e-3 **and** dropout 0.3) is too much for 113 episodes, and `paper` is underfitting — it prevents overfitting by preventing fitting.
 2. `paper` generalises more stably and noise-MSE is the wrong yardstick for which model is the better *policy*.
 
-Reading 2 is not special pleading: the 2026-08-12 rollouts showed a DP checkpoint whose held-out noise-MSE had risen 4× still scoring 50% / 0.650 on the arm, statistically tied with a 100k-step ACT model.
+Reading 2 is not special pleading, but the support for it is **weaker than this write-up originally claimed**. ⚠️ *Corrected 2026-08-13.* The 2026-08-12 rollout showed a DP checkpoint **1.12× past its optimum** (not 4×) scoring 50% / 0.650, statistically tied with a 100k-step ACT model — at n=12, ~29% power. That is consistent with Reading 2 but nowhere near sufficient to establish it.
 
 Because the arms deliberately confounded weight decay and dropout, **we do not know which knob is too strong.**
 

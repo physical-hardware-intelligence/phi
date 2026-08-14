@@ -240,10 +240,12 @@ echo " checkpoints: $PROJECT/results/dpt_${TAG}_emb${EMB}/checkpoints/"
 ls -1 "$PROJECT/results/dpt_${TAG}_emb${EMB}/checkpoints/" 2>/dev/null | tail -20
 echo
 echo " READ THE eval_loss CURVE, NOT JUST THE LAST NUMBER."
-echo " And remember what the CNN rollouts proved on 2026-08-12: a checkpoint whose"
-echo " held-out noise-MSE had risen 4x still matched a 100k-step ACT model on the"
-echo " arm. eval_loss did NOT predict task success. Treat it as a training-health"
-echo " signal for this A/B, not as a reason to pick a checkpoint."
+echo " On 2026-08-12 a DP checkpoint 1.12x past its own optimum (20k, 0.0173 vs"
+echo " 0.0155 @10k) matched a 100k-step ACT model on the arm -- at n=12, ~29% power."
+echo " That is ONE point: it neither validates nor refutes eval_loss for picking a"
+echo " checkpoint. (An earlier banner here said '4x' -- that was the RUN's rise to"
+echo " 100k; that checkpoint was never rolled out.) Treat eval_loss as a"
+echo " training-health signal for this A/B, and as UNTESTED for model selection."
 echo
 echo " Next: bucket the loss by diffusion timestep k before drawing conclusions."
 echo " A single averaged eval_loss blends the near-free k>90 regime (signal is"

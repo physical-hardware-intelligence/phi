@@ -37,6 +37,6 @@ it is ready.
 
 🔑 **ACT and DP are tied.** Paired over the 11 episodes both ran, DP − ACT = −0.018 (t(10) = −0.13; 7 ties). Both beat the no-recovery baseline by a consistent margin (+0.240 and +0.218) that **neither test resolves at n≈11** (p = 0.375 / 0.453). Detecting an effect this size at 80% power needs **n ≈ 40**. The scores are nearly binary, so extra *repeat trials on already-staged scenes* buy far more power per minute than new scenes — `--episodes` accepts duplicates.
 
-🔑 **DP's held-out noise-MSE did not predict task success.** The DP checkpoint was knowingly past its own optimum on a loss that rose 4× monotonically, and still matched a 100k ACT model. Do not use DP `eval_loss` for model selection. See [the experiment](../experiments/2026-08-12_dp-recovery-encoder-ab.md).
+🔑 **DP's held-out noise-MSE is UNVALIDATED as a selection metric — not disproven.** ⚠️ *Corrected 2026-08-13.* The rolled-out DP checkpoint was **20k at 1.12× its optimum** (0.0173 vs 0.0155), not the 4× the run reached by 100k — that checkpoint was never rolled out. With **one** DP checkpoint on the arm at **n=12 (~29% power)**, there is no evidence either way. See [the experiment](../experiments/2026-08-12_dp-recovery-encoder-ab.md).
 
 The two `8bin` models and the DP `lerobot` arm remain unscored.

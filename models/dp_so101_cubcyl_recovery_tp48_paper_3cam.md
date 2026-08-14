@@ -52,7 +52,11 @@ Held-out by object: red cube 2/4 (0.75) · yellow cylinder 3/4 (0.80) · **white
 | success | 27% | 55% | **50%** |
 | mean progress | 0.418 | 0.636 | **0.650** |
 
-🔑 **Held-out noise-MSE did not predict task success.** This checkpoint was knowingly past its own optimum on a loss that rose 4× monotonically, and it still matched a 100k-step ACT model and posted the highest mean progress of the three. The `eval_loss` table above is therefore **not** evidence about deployability — treat DP noise-MSE as near-useless for model selection until something demonstrates otherwise.
+🔑 **We do not know whether held-out noise-MSE predicts task success.** ⚠️ *Corrected 2026-08-13 — the earlier version of this line said the metric was "near-useless", which the data does not support.*
+
+This checkpoint is **20k, `eval_loss` 0.0173 = 1.12× its own 10k optimum of 0.0155** — only 12% past, not the 4× the run eventually reached at 100k. The 4×-degraded checkpoint was never rolled out. And only **one** DP checkpoint was ever put on the arm, at **n=12 (~29% power)**.
+
+One point cannot establish or refute a correlation. The correct reading is that DP `eval_loss` is **unvalidated** as a model-selection metric here, not disproven. Ranking checkpoints by it remains the only cheap option available; treat the ranking as untested rather than known-bad.
 
 ✅ **The `Ta=24` deadline held.** Median 67 s per rollout vs ACT's 69 s, with a tighter spread (56-95 s vs 60-153 s). No stutter, no slow-FPS warnings.
 

@@ -143,9 +143,21 @@ DP control split (trained-on episodes 5/50/95): 2/3, mean 0.733.
 
 ### 🔑 The headline: held-out noise-MSE did not predict task success
 
-This write-up argued before any rollout that DP's `eval_loss` was a poor proxy, and that "a 4× degradation is a strong negative signal, **not proof the policies are unusable**." The rollouts vindicate the hedge and go further: **the signal was worthless.**
+> 🚨 **CORRECTED 2026-08-13. The original text of this section is preserved below, struck through, because the conclusion it drew was not supported by the data.**
+>
+> ~~"The rollouts vindicate the hedge and go further: **the signal was worthless.** A checkpoint we *knew* was past its optimum, from a run whose held-out loss rose monotonically 4×, matched a 100k-step ACT model... ⇒ Do not use DP noise-MSE for model selection or early stopping on this task."~~
+>
+> **Two errors.**
+>
+> **1. It conflated the run with the checkpoint.** The run's loss did rise 4× (`0.0155 @10k → 0.0636 @100k`). But the checkpoint actually rolled out was **20k at `eval_loss` 0.0173 — 1.12× the optimum, 12% past it.** The 4×-degraded 100k checkpoint was never put on the arm. "A checkpoint we knew was past its optimum" is true; "past its optimum by 4×" is not.
+>
+> **2. One point cannot refute a correlation.** Exactly **one** DP checkpoint was ever rolled out, at **n=12 episodes (~29% power)**. To test whether `eval_loss` ranks checkpoints you need *several* DP checkpoints spanning a range of `eval_loss`, rolled out under the same conditions. That experiment has not been run. Comparing DP to ACT does not test it either — their `eval_loss` values are different quantities (noise-MSE vs L1+KL) and are not comparable.
+>
+> **The supportable statement:** DP `eval_loss` is **unvalidated** as a model-selection metric on this task. Not worthless, not trustworthy — untested. Next-step #1 is therefore *not* demoted: chasing the 10k optimum is still the reasonable default, because we have no evidence against it.
 
-A checkpoint we *knew* was past its optimum, from a run whose held-out loss rose monotonically 4×, **matched a 100k-step ACT model and posted the highest mean progress of the three.** ⇒ Do not use DP noise-MSE for model selection or early stopping on this task. Next-step #1 below is demoted accordingly: chasing the 10k optimum now optimises a metric with no demonstrated link to grasping.
+This write-up argued before any rollout that DP's `eval_loss` was a poor proxy, and that "a 4× degradation is a strong negative signal, **not proof the policies are unusable**." That hedge was correct and is what survives.
+
+What the rollout does establish, plainly: a DP checkpoint 12% past its own optimum **matched a 100k-step ACT model and posted the highest mean progress of the three** — at n=12, where only a very large effect would have been detectable.
 
 ### DP vs ACT: a dead heat
 

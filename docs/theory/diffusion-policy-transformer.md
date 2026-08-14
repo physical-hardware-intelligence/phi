@@ -412,15 +412,31 @@ Extending the run **re-raised the learning rate from ~0 back to 5e-5** and re-an
 
 > 🔑 **Rule: with any horizon-dependent scheduler, changing `--steps` on resume changes the entire LR trajectory, not just where you stop.** A resumed run is a *different recipe*, not a longer one. If you want a clean extension, use a schedule that does not depend on the total (constant, or step decay).
 
-## 16. What `eval_loss` does not tell you
+## 16. What `eval_loss` does and does not tell you
 
-On 2026-08-12 a DP checkpoint scored **50% / 0.650** on the arm, tied with a 100k-step ACT model. Held-out noise-MSE did not rank the policies the way the arm did.
+This section exists because we got it wrong twice, in opposite directions, and the second error is the more instructive one.
 
-> 🚨 **A false claim we propagated and are correcting here.** Several places in this repo state that the rolled-out checkpoint had an `eval_loss` "4× above its optimum". **That is false.** The rolled-out checkpoint was **20k**, `eval_loss` **0.0173**, only **1.12×** above its 10k optimum of **0.0155**. The 4×-degraded 100k checkpoint was **never rolled out**. The true finding is still real but much weaker: a checkpoint 12% past its optimum scored as well as one at its optimum.
->
-> **Stale copies of the false claim remain in** `src/phi/eval/eval_by_k.py` (docstring), both model cards, `models/README.md`, both files in `experiments/`, and several sbatch banners. They have not been corrected yet.
+### The claim we propagated, and why it was false
 
-Statistical power for arm rollouts, computed for our success rates:
+Several places in this repo stated that a DP checkpoint whose `eval_loss` had **"risen 4×"** still scored 50% on the arm — and concluded from that that DP noise-MSE was *"worthless"* for model selection.
+
+Two separate errors, both now corrected repo-wide.
+
+**Error 1 — it conflated the run with the checkpoint.** From `experiments/2026-08-12`:
+
+```
+task 0 `paper`:  10k 0.0155 (optimum, never saved) │ 20k 0.0173 │ 100k 0.0636
+                 0.0636 / 0.0155 = 4.10×   ← the RUN rose 4×
+                 0.0173 / 0.0155 = 1.12×   ← the ROLLED-OUT checkpoint
+```
+
+The run's loss did rise 4×. The checkpoint actually put on the arm was **20k, only 12% past its own optimum**. The 4×-degraded 100k checkpoint was **never rolled out**.
+
+**Error 2 — and this is the one worth internalising — one point cannot refute a correlation.** Exactly **one** DP checkpoint was ever rolled out. To test whether `eval_loss` *ranks* checkpoints you need several DP checkpoints spanning a range of `eval_loss`, rolled out under identical conditions. That experiment has never been run.
+
+Nor does comparing DP against ACT test it: their `eval_loss` values are **different quantities** — noise-prediction MSE versus L1 + KL — and are not comparable numbers. A cross-architecture tie says nothing about whether either metric ranks its own checkpoints.
+
+### What is actually supported
 
 ```
 n = 12 episodes → 29% power
@@ -428,7 +444,15 @@ n = 30 episodes → 64% power
 n = 40 episodes → 77% power
 ```
 
-**At 12 episodes we cannot detect anything but a huge effect.** DP and ACT tied at a paired difference of −0.018 with 7 of 11 episodes identical — with 29% power that result carries almost no information either way.
+At n=12 we cannot detect anything but a huge effect. DP and ACT tied at a paired difference of **−0.018** with **7 of 11 episodes identical** — at 29% power, that result carries almost no information either way.
+
+> 🔑 **The supportable statement: DP `eval_loss` is UNVALIDATED as a model-selection metric on this task — not disproven.** Untested is not the same as useless. Ranking checkpoints by it remains the only cheap option we have, and there is no evidence against doing so. Chasing the 10k optimum is still the reasonable default.
+>
+> The generalisable lesson is about *us*, not the metric: **a single underpowered observation was used to retire a measurement**, and that conclusion then propagated into eight files, a script docstring, and job banners where it shaped later decisions. The failure mode is not "we measured wrong" — it is "we concluded too hard from one point, and wrote the conclusion down as fact."
+
+### The experiment that would actually settle it
+
+Roll out DP checkpoints at 20k / 40k / 60k / 100k — spanning `eval_loss` 0.0173 → 0.0636, a genuine 4× range — on the same held-out episodes, `n ≥ 30`. If success rate is flat across a 4× `eval_loss` spread, the metric is uninformative *and we would know it*. That is one afternoon of arm time and it retires the question permanently.
 
 ---
 

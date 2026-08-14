@@ -28,10 +28,23 @@ fine action detail -- is the one that decides whether the gripper closes on a
 25 mm cube, and "reaches correctly, fails to close" is exactly the DP failure
 mode scored on the arm on 2026-08-12.
 
-It also matters because on that date a DP checkpoint whose averaged eval_loss had
-risen 4x still scored 50% / 0.650 on the arm, tied with a 100k-step ACT model.
-Held-out noise-MSE did not predict task success. This script exists to find out
-whether the averaging is why.
+WHAT WE DO *NOT* KNOW, STATED CORRECTLY (corrected 2026-08-13)
+--------------------------------------------------------------
+An earlier version of this docstring claimed "a DP checkpoint whose eval_loss had
+risen 4x still scored 50% / 0.650 on the arm". THAT WAS FALSE and it conflated
+two different numbers from experiments/2026-08-12:
+
+    the RUN's loss rose 4x     0.0155 @10k -> 0.0636 @100k    (true)
+    the ROLLED-OUT checkpoint  0.0173 @20k = 1.12x the optimum (what was rolled out)
+
+The 4x-degraded 100k checkpoint was NEVER rolled out. Only ONE DP checkpoint was
+ever put on the arm, at n=12 episodes (~29% statistical power).
+
+So the honest position is not "eval_loss is worthless" -- it is that ONE point
+cannot establish or refute a correlation, and we have NO evidence either way.
+Ranking checkpoints by eval_loss is unvalidated here, not disproven. This script
+exists to make the metric more informative (per-k instead of averaged) so that a
+future multi-checkpoint rollout has something worth correlating against.
 
 WHAT MAKES THIS A MEASUREMENT AND NOT A PLOT
 --------------------------------------------
