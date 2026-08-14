@@ -17,7 +17,8 @@ nav:
   - Deployment: deployment/README.md
   - Theory:
       - Overview & policy family tree: theory/README.md
-      - "ACT": theory/act-shapes.md
+      - "ACT — why": theory/act-why.md
+      - "ACT — shapes & VRAM": theory/act-shapes.md
       - "Diffusion Policy — why": theory/diffusion-policy-why.md
       - "Diffusion Policy — CNN backbone": theory/diffusion-policy-shapes.md
       - "Diffusion Policy — Transformer backbone": theory/diffusion-policy-transformer.md

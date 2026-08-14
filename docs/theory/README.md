@@ -8,15 +8,18 @@ Find your model, read its page. Each is self-contained apart from the prerequisi
 
 | Model | Document | What it is | Read when |
 |---|---|---|---|
+| **ACT** | ⭐ [act-why](act-why.md) | **story — read start to finish** | before training ACT, or before changing it |
 | **ACT** | [act-shapes](act-shapes.md) | reference — every tensor traced | choosing a batch size, or debugging OOM |
 | **Diffusion Policy** (shared theory) | ⭐ [diffusion-policy-why](diffusion-policy-why.md) | **story — read start to finish** | before touching any diffusion policy |
 | **Diffusion Policy — CNN** | [diffusion-policy-shapes](diffusion-policy-shapes.md) | reference — every tensor, VRAM, config traps | training the default UNet backbone |
 | **Diffusion Policy — Transformer** | [diffusion-policy-transformer](diffusion-policy-transformer.md) | story + reference, with our measured results | training `diffusion_transformer`, or reading our A/B |
 | **SmolVLA** | [smolvla](smolvla.md) | story + reference, measured from source | training or evaluating a VLA |
 
-**Suggested reading order if you are new:** `diffusion-policy-why` → `diffusion-policy-shapes` → `act-shapes` → `diffusion-policy-transformer` → `smolvla`.
+**Suggested reading order if you are new:** `diffusion-policy-why` → `diffusion-policy-shapes` → `act-why` → `act-shapes` → `diffusion-policy-transformer` → `smolvla`.
 
-**If you only want the caveats** (things that will mislead you, all measured on this repo): [DP-T §7 the memory mask blocks action 0 from the newest frame](diffusion-policy-transformer.md#7-the-two-masks-and-one-surprising-consequence) · [DP-T §15 the resume trap](diffusion-policy-transformer.md#15-the-resume-trap-steps-is-the-cosine-horizon) · [DP-T §16 what `eval_loss` does not tell you](diffusion-policy-transformer.md#16-what-eval_loss-does-not-tell-you) · [SmolVLA §Part VIII caveats for our rig](smolvla.md#part-viii-caveats-for-our-rig).
+**If you are looking for something to change** (each page ends with, or flags, what is load-bearing versus historical accident): [ACT §Part VI what is load-bearing, and what is accident](act-why.md#part-vi-what-is-load-bearing-and-what-is-accident) is the most direct.
+
+**If you only want the caveats** (things that will mislead you, all measured on this repo): [DP-T §7 the memory mask blocks action 0 from the newest frame](diffusion-policy-transformer.md#7-the-two-masks-and-one-surprising-consequence) · [DP-T §15 the resume trap](diffusion-policy-transformer.md#15-the-resume-trap-steps-is-the-cosine-horizon) · [DP-T §16 what `eval_loss` does and does not tell you](diffusion-policy-transformer.md#16-what-eval_loss-does-and-does-not-tell-you) · [SmolVLA §Part VIII caveats for our rig](smolvla.md#part-viii-caveats-for-our-rig).
 
 ## The policy family tree (pick your baseline)
 
@@ -51,7 +54,8 @@ Turn continuous actions into discrete "words" from a learned codebook, then lang
 ## Imitation learning & action chunking (ACT)
 Copy expert demos, but predict a **chunk** of future actions at once to avoid compounding error.
 - ACT paper: https://arxiv.org/abs/2304.13705
-- **[ACT, shape by shape](act-shapes.md)** — every tensor from dataloader to action, traced from the installed lerobot. Read this before choosing a batch size: it shows why 2 cameras at 640×480 give 602 encoder tokens, and why the convolutional frontend (not attention) is what fills the GPU.
+- ⭐ **[ACT — why it is shaped like that](act-why.md)** — **start here.** The parameter ledger closes at 51,571,590, and three of those facts change how you read the architecture: **33.7% of the model never runs on the robot** (the CVAE encoder is training-only and its latent is forced to collapse by `kl_weight=10`), **the decoder is one layer because of an upstream bug that was reproduced deliberately**, and **the decoder's input tokens are literally zeros** — the 50 learned query embeddings are *questions*, and cross-attention over 902 observation tokens supplies every answer. Ends with what is load-bearing versus historical accident.
+- **[ACT, shape by shape](act-shapes.md)** — the **reference**: every tensor from dataloader to action, traced from the installed lerobot. Read this before choosing a batch size: it shows why 2 cameras at 640×480 give 602 encoder tokens, and why the convolutional frontend (not attention) is what fills the GPU.
 
 ## Generative action heads (Diffusion Policy · flow matching)
 Instead of regressing one action, **generate** an action trajectory from noise — captures the "many valid ways" (multimodality) of a task.
