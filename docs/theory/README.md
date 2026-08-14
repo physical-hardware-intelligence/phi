@@ -2,6 +2,22 @@
 
 The repo teaches you to *run* policies; this section is *why* they work, so members build intuition, not just muscle memory. Read the one for whatever you're training.
 
+## 📚 Documents, by model
+
+Find your model, read its page. Each is self-contained apart from the prerequisites it names at the top.
+
+| Model | Document | What it is | Read when |
+|---|---|---|---|
+| **ACT** | [act-shapes](act-shapes.md) | reference — every tensor traced | choosing a batch size, or debugging OOM |
+| **Diffusion Policy** (shared theory) | ⭐ [diffusion-policy-why](diffusion-policy-why.md) | **story — read start to finish** | before touching any diffusion policy |
+| **Diffusion Policy — CNN** | [diffusion-policy-shapes](diffusion-policy-shapes.md) | reference — every tensor, VRAM, config traps | training the default UNet backbone |
+| **Diffusion Policy — Transformer** | [diffusion-policy-transformer](diffusion-policy-transformer.md) | story + reference, with our measured results | training `diffusion_transformer`, or reading our A/B |
+| **SmolVLA** | [smolvla](smolvla.md) | story + reference, measured from source | training or evaluating a VLA |
+
+**Suggested reading order if you are new:** `diffusion-policy-why` → `diffusion-policy-shapes` → `act-shapes` → `diffusion-policy-transformer` → `smolvla`.
+
+**If you only want the caveats** (things that will mislead you, all measured on this repo): [DP-T §7 the memory mask blocks action 0 from the newest frame](diffusion-policy-transformer.md#7-the-two-masks-and-one-surprising-consequence) · [DP-T §15 the resume trap](diffusion-policy-transformer.md#15-the-resume-trap-steps-is-the-cosine-horizon) · [DP-T §16 what `eval_loss` does not tell you](diffusion-policy-transformer.md#16-what-eval_loss-does-not-tell-you) · [SmolVLA §Part VIII caveats for our rig](smolvla.md#part-viii-caveats-for-our-rig).
+
 ## The policy family tree (pick your baseline)
 
 Every imitation policy answers one question: **how do you model `P(action | obs)` without averaging away the valid modes** (multimodality), and do you predict one step or a **chunk**? Cheapest → most expressive:
@@ -44,12 +60,14 @@ Two docs, and the split is deliberate — **one story you read, one reference yo
 
 - ⭐ **[Diffusion Policy — why it is shaped like that](diffusion-policy-why.md)** — **start here, read start to finish.** The whole architecture derived from one problem: regression outputs the *mean* of multimodal demonstrations, and the mean of two valid grasps is a collision. Part I is diffusion itself (why noise, why 100 small steps not one jump, why the multimodality lives in sampling instead of a latent that can collapse — as ours did). Part II is how it sees (the 1×1 conv, SpatialSoftmax, a 2×3 example you can check by hand, and the three ways a keypoint lies). Part III is how it generates (the sinusoidal embedding, FiLM, GroupNorm, the convolution arithmetic). Every section runs: problem → candidate designs → why the winner won → the shapes.
 - **[Diffusion Policy, shape by shape](diffusion-policy-shapes.md)** — the **reference**: every tensor measured from the installed lerobot, VRAM and latency, config traps that will mislead you, and the ACT comparison table.
-- Flow matching (used by pi0): the model learns a velocity field that flows noise → action in a few steps.
+- **[Diffusion Policy — the transformer backbone](diffusion-policy-transformer.md)** — the **same diffusion process with the denoiser swapped**: a 1-D conv UNet over time becomes an 8-layer transformer decoder. Covers our port (vendored from real-stanford, no lerobot fork), parameter arithmetic that reproduces the paper's Table 8, and the results we measured: the regularisation A/B (Table 8's recipe *underfits* our 120 episodes), bucketed evaluation by noise level, and two traps — a resume that silently changes the LR schedule, and what held-out loss does *not* predict about the arm.
+- Flow matching (used by pi0 and SmolVLA): the model learns a velocity field that flows noise → action in a few steps. The straight-line path makes Euler integration **exact** — see [smolvla §15](smolvla.md#15-euler-integration-is-exact).
 
 ## Vision-Language-Action models (VLAs)
 A pretrained vision-language model + an action head, so the robot inherits web-scale "common sense" and follows language.
+- **[SmolVLA — a frozen VLM with an action expert bolted on](smolvla.md)** — **start here for VLAs.** Two transformer towers of different widths running in lockstep, meeting in a shared 15×64 head space. Every number measured from source: the parameter ledger (only **1.6 M** of 450 M are new, and 47 M are a dead `lm_head`), the image pipeline (25% of our camera frame is padding), the block-causal mask, the self/cross alternation, and why flow matching's loss measures something DDPM's does not.
 - pi0 (VLA + flow matching): https://arxiv.org/abs/2410.24164
-- SmolVLA: https://huggingface.co/papers/2506.01844
+- SmolVLA paper: https://huggingface.co/papers/2506.01844
 - NVIDIA GR00T N1: https://arxiv.org/abs/2503.14734
 
 ## RL fine-tuning (learning from experience)
