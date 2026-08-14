@@ -22,7 +22,13 @@ ACT answers the same question as Diffusion Policy — *how do you avoid averagin
 
 **And here is the finding that should reframe the whole architecture: ACT's latent collapses, on purpose.** At inference `z` is set to **zeros** and the CVAE encoder — **33.7% of the model** — never runs. So the mechanism ACT introduced to handle multimodality is switched off exactly when the robot is moving.
 
-What actually runs on the arm is: a shared ResNet-18, a 4-layer transformer encoder over 902 tokens, and **one** cross-attention layer. That is much closer to Patch Policy's "frozen features + thin readout head" than the CVAE framing suggests, and it is the most interesting thing about ACT for anyone trying to build something new.
+What actually runs on the arm is: a shared ResNet-18, a 4-layer transformer encoder over 902 tokens, and **one** cross-attention layer. That is much closer to Patch Policy's "frozen features + thin readout head" than the CVAE framing suggests.
+
+And it goes further. Because that single decoder layer receives **zeros** as its input, its self-attention sublayer is **provably inert** — measured, it emits one constant vector identical across all 50 positions (§10a). So:
+
+> 🔑 **ACT as published has no mechanism for the 50 predicted timesteps to influence one another.** Each is an independent read of the observation, stitched into a chunk by `Linear(512 → 6)`. For a method whose headline contribution is *action chunking*, that is the fact worth sitting with.
+
+The decoder is therefore: **50 learned labels → one cross-attention over 902 observation tokens → FFN → linear head.** Fifty questions, asked once.
 
 ---
 
@@ -226,9 +232,13 @@ Note also `maybe_add_pos_embed` is called **inside every layer**, not once at th
 ```
 self-attention   (50 queries, 50 keys)
   q,k = zeros + decoder_pos_embed        (50,B,512) → 8 heads × 64
-  scores  (B,8,50,50)      ← the 50 chunk steps coordinate with each other
+  value = x = ZEROS                                 ← see §10a, this is inert
+  scores  (B,8,50,50)                               computed, then wasted
 
 cross-attention  (50 queries, 902 keys)          ← the asymmetry that defines ACT
+  query = x + decoder_pos_embed          position re-injected HERE
+  key   = encoder_out + encoder_pos_embed
+  value = encoder_out                    RAW, no position
   scores  (B,8,50,902)
   output  (B,8,50,64) → (50,B,512)
 
@@ -238,6 +248,50 @@ action_head      Linear(512 → 6)                → (B,50,6)
 ```
 
 `dim_feedforward=3200` against `dim_model=512` is **6.25×**, where the transformer convention is 4×. Nobody has ablated it.
+
+## 10a. 🚨 The decoder's self-attention is provably inert — and that is a second consequence of the 1-layer bug
+
+The decoder input is `torch.zeros`, and `self_attn` is called with **`value=x`** — that is, with zeros:
+
+```python
+q = k = self.maybe_add_pos_embed(x, decoder_pos_embed)   # position-specific ✓
+x = self.self_attn(q, k, value=x)[0]                     # value = ZEROS
+```
+
+Query and key are position-specific, but only the **value** becomes output:
+
+```
+V_j = W_v @ 0 + b_v = b_v            the same constant for every j
+
+output = Σ_j p_j · V_j = b_v · Σ_j p_j = b_v      since softmax sums to 1
+```
+
+**The attention weights cancel.** Whatever position-dependent pattern `p_j` encoded is annihilated by multiplying a constant by weights summing to 1.
+
+Measured at init (lerobot zero-initialises all biases, so this is *exactly* zero):
+
+```
+self_attn output (50,1,512)   std 0.000000
+max deviation of any position from the mean over positions: 0.000e+00
+all 50 positions IDENTICAL? True
+```
+
+Re-measured with **trained-like non-zero biases**, which is the case that matters:
+
+```
+output std 0.140878                       non-zero, so it does *something*
+max deviation ACROSS the 50 positions: 2.086e-07
+all 50 positions still identical? True
+equals out_proj(b_v) exactly?          True
+```
+
+> 🔑 **For any weights, trained or not, this sublayer emits one constant vector identical across all 50 positions.** It cannot distinguish step 0 from step 49. It holds **1,050,624 parameters**, of which only the 512 values of `b_v` (via `out_proj`) can ever reach the output. Position survives into the computation *only* because cross-attention re-adds `decoder_pos_embed` to its query.
+>
+> **This is inert because there is one layer, not by design.** Layer 2, had it existed, would receive layer 1's real output as its `value`, and its self-attention *would* let the 50 timesteps coordinate. So the `n_decoder_layers=1` bug does not merely delete 6 layers — **it renders the surviving layer's self-attention useless.**
+>
+> ⚠️ **Therefore ACT as published has no mechanism for the 50 predicted timesteps to influence one another.** Each is an independent read of the observation, stitched into a chunk by the action head. For a method whose headline contribution is *action chunking*, that is worth sitting with — and it makes `n_decoder_layers=7` the single most interesting one-line experiment available here, because it would be the first time the chunk could be internally consistent.
+>
+> (Compare [DP-T §8](diffusion-policy-transformer.md#8-the-three-sublayers-with-every-dimension), where self-attention over the 48 action tokens is real and masked causally, and [smolvla §11a](smolvla.md#11a-mode-a-even-rows-join-attend-split), where action tokens attend to each other in 8 of 16 layers.)
 
 ## 11. 🚨 The decoder is one layer, because of a bug that was never fixed
 
@@ -289,13 +343,14 @@ The reason to read all of this is to know which parts you may change. Measured, 
 
 **Load-bearing — change these and ACT stops being ACT:**
 
-- **Action chunking.** Predicting 50 steps at once is the idea that every later method adopted (DP, SmolVLA, Patch Policy all chunk).
+- **Action chunking.** Predicting 50 steps at once is the idea that every later method adopted (DP, SmolVLA, Patch Policy all chunk). Note carefully what ACT's version *is*, though: 50 **independent** reads emitted in parallel, not a jointly-modelled trajectory (§10a).
 - **Learned query embeddings as addresses.** 25,600 parameters turn "step *k*" into a probe. This is the mechanism, and it is remarkably cheap.
 - **High observation bandwidth.** 902 tokens reaching the decoder through cross-attention, versus DP's 192 numbers.
+- **The value stream carries no position.** Position selects; it never contaminates content (§9). Cheap, and easy to get wrong when writing your own.
 
 **Accident or unexamined — fair game:**
 
-- **`n_decoder_layers=1`** — a reproduced upstream bug (§11).
+- **`n_decoder_layers=1`** — a reproduced upstream bug (§11), which also silently kills the decoder's self-attention (§10a). Raising it to 7 is one line and would be the first ACT whose chunk is internally consistent.
 - **The CVAE** — 33.7% of parameters, guaranteed to collapse by `kl_weight=10`, unused at inference (§2, §5).
 - **`dim_feedforward=3200`** (6.25×, not the conventional 4×) — never ablated.
 - **Shared vs separate camera backbones** — ACT shares, DP does not; never A/B'd here (§3).
