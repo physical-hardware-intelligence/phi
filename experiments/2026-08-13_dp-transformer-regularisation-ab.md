@@ -115,6 +115,66 @@ Two consequences:
 
 46.6 / 49.9 ms here against 106.4 ms in the CNN calibration — same dataset, batch, workers and decode path. A 2.2× swing from node assignment or `/scratch` contention. The CNN write-up's "43% dataloader-bound" has been corrected accordingly. **Do not carry a `data_s` figure between runs; re-calibrate.**
 
-## Results
+## Results (job `9145402`, 2026-08-13)
 
-_Training not yet run._
+Both arms **COMPLETED**, 30,000 steps, 29.5 epochs, zero errors. 16 checkpoints each (2k…30k plus `last`), 7.2 GB per arm. Wall time 2:36 (`paper`) and 2:17 (`unreg`) — the gap is dropout 0.3 costing work the other arm skips.
+
+`eval_loss` = noise-prediction MSE on the 30 clean held-out episodes.
+
+| step | 2k | 4k | 6k | **8k** | 10k | 12k | 14k | 16k | 18k | 20k | 22k | 24k | **26k** | 28k | 30k |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **`paper`** wd 1e-3, drop 0.3 | .0741 | .0689 | .0630 | .0610 | .0617 | .0582 | .0566 | .0582 | .0563 | .0546 | .0541 | .0541 | **.0531** | .0532 | .0536 |
+| **`unreg`** wd 1e-6, drop 0.0 | .0419 | .0325 | .0307 | **.0287** | .0293 | .0288 | .0288 | .0295 | .0310 | .0310 | .0308 | .0328 | .0340 | .0339 | .0361 |
+
+Final train loss: `paper` **0.061**, `unreg` **0.013** — a 4.7× gap, which is the regularisation doing its job.
+
+### Prediction 1: CORRECT
+
+I predicted `paper` would show a materially flatter held-out curve and `unreg` would reproduce the CNN's monotonic degradation. Both happened. **`unreg` bottoms at 8,000 and climbs monotonically thereafter**; the CNN turned at ≤10,000. `paper` never turns — it descends to 0.0531 at 26k and then plateaus (.0531 / .0532 / .0536).
+
+_Note: `paper` has **converged**, not "still improving". Its last three points are flat. More steps would not help it._
+
+### 🚨 But `paper` is uniformly worse in absolute terms
+
+| | best `eval_loss` | at step | rise from minimum to 30k |
+|---|---:|---:|---:|
+| `unreg` | **0.0287** | 8,000 | **1.26×** |
+| `paper` | 0.0531 | 26,000 | 1.01× (flat) |
+
+**`unreg`'s best beats `paper`'s best by 1.85×.** Regularisation bought curve stability at a large cost in level. Two readings this experiment cannot separate:
+
+1. Table 8's strength (wd 1e-3 **and** dropout 0.3) is too much for 113 episodes, and `paper` is underfitting — it prevents overfitting by preventing fitting.
+2. `paper` generalises more stably and noise-MSE is the wrong yardstick for which model is the better *policy*.
+
+Reading 2 is not special pleading: the 2026-08-12 rollouts showed a DP checkpoint whose held-out noise-MSE had risen 4× still scoring 50% / 0.650 on the arm, statistically tied with a 100k-step ACT model.
+
+Because the arms deliberately confounded weight decay and dropout, **we do not know which knob is too strong.**
+
+### What this says about A vs B
+
+| run | backbone | regularisation | rise from minimum |
+|---|---:|---|---:|
+| DP-CNN | 68,665,222 | none | **4.10×** (0.0155 → 0.0636) |
+| DP-T `unreg` | 9,020,934 | none | **1.26×** (0.0287 → 0.0361) |
+| DP-T `paper` | 9,020,934 | wd 1e-3 + drop 0.3 | **1.01×** (flat) |
+
+The overfit is strongly controllable by model size and by regularisation. **Hypothesis B — "113 episodes is simply too few" — loses ground as the sole explanation**, because holding the dataset fixed and changing only the model/regularisation moved the degradation from 4.10× to nothing.
+
+But hypothesis A does not win cleanly either. The honest reading is a **middle**: regularisation controls the overfit, and Table 8's strength overshoots on this dataset. The unexplored region is between `wd 1e-6 / drop 0.0` and `wd 1e-3 / drop 0.3`.
+
+### The `save_freq` lesson paid off
+
+`unreg`'s optimum is at **step 8,000** — inside the window the CNN run could not resolve, and this time **it was saved**. Under the old `save_freq=20000` it would have been lost exactly as before.
+
+### What is still unknown
+
+**Which checkpoint is the better policy.** Nothing here measures task success, and the metric in this table has already been shown not to predict it. The candidates to roll out are `unreg @ 8000` (best noise-MSE) and `paper @ 26000` (best stable), against the existing DP-CNN and ACT numbers.
+
+**Which regime moved.** These are uniform-`k` averages, blending the near-free `k>90` regime (√ᾱ = 0.0005, so predicting `eps` is nearly copying the input) with `k<5`, where recovering `eps` means dividing by 0.0251 and any residual uncertainty about the action is amplified ~40×. Only the second sets whether the gripper closes. A `k`-bucketed evaluation over these 32 checkpoints is the cheapest way to find out, and it is inference-only.
+
+### Next steps, in priority order
+
+1. **`k`-bucketed eval** across both arms' checkpoints. No training, no arm time, and it decides whether `paper`'s higher average hides a better low-`k` regime — which is the regime that grasps.
+2. **Roll out `unreg @ 8000` and `paper @ 26000`** on the same 15 episodes as the CNN and ACT runs. This is the only thing that settles reading 1 vs reading 2.
+3. **An intermediate-regularisation arm** (e.g. wd 1e-4, dropout 0.1), if 1 and 2 suggest `paper` is underfitting rather than simply differently-fit.
+4. **`n_emb=768` is free** (calibration: 223.8 ms vs 222.7 ms/step) if capacity turns out to be the limit rather than regularisation.
