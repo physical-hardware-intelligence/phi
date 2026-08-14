@@ -172,9 +172,74 @@ But hypothesis A does not win cleanly either. The honest reading is a **middle**
 
 **Which regime moved.** These are uniform-`k` averages, blending the near-free `k>90` regime (√ᾱ = 0.0005, so predicting `eps` is nearly copying the input) with `k<5`, where recovering `eps` means dividing by 0.0251 and any residual uncertainty about the action is amplified ~40×. Only the second sets whether the gripper closes. A `k`-bucketed evaluation over these 32 checkpoints is the cheapest way to find out, and it is inference-only.
 
+## k-bucketed evaluation (job `9149944`) — the ambiguity is resolved
+
+[`phi.eval.eval_by_k`](../src/phi/eval/eval_by_k.py) over both arms, 15 buckets, 16,904 held-out samples each, same `eps` reused across every bucket and checkpoint. Raw CSVs: [`outputs/k_eval_unreg.csv`](../outputs/k_eval_unreg.csv), [`outputs/k_eval_paper.csv`](../outputs/k_eval_paper.csv).
+
+### 🔑 There is no hidden low-`k` advantage. `paper` loses at every bucket.
+
+| k | `unreg` @8000 | `paper` @26000 | paper worse by |
+|---:|---:|---:|---:|
+| 0 | **.29058** | .43819 | 1.51× |
+| 5 | **.11615** | .18276 | 1.57× |
+| 20 | **.04025** | .07096 | 1.76× |
+| 50 | **.01163** | .03063 | 2.63× |
+| 70 | **.00472** | .01420 | 3.01× |
+| 95 | **.00125** | .00170 | 1.36× |
+| 99 | **.00136** | .00256 | 1.88× |
+
+**Worse at 15/15 buckets, by 1.36× to 3.01×.** And the sanity check is worse still for `paper`: `unreg`'s *overfit final* checkpoint at 30k also beats `paper`'s best at **15/15** buckets.
+
+This kills the hypothesis that motivated the diagnostic — that `paper`'s worse average might conceal a better low-`k` regime, the one that sets whether the gripper closes. It conceals nothing.
+
+⇒ Of the two readings the 30k table could not separate:
+* **"Table 8's strength overshoots and `paper` is underfitting" — SUPPORTED.**
+* **"`paper` generalises more stably and noise-MSE is the wrong yardstick" — NOT supported.** If it were right, `paper` would win somewhere. It wins nowhere.
+
+### The trajectories confirm underfitting
+
+`paper` improves monotonically at **both** ends — `k=0`: .4684 → .4382 → .4343, `k=99`: .00348 → .00256 → .00249 across 16k/26k/30k. It never overfits anywhere, because it never fits.
+
+### 🔑 And the averaged metric was hiding something real, just not that
+
+`unreg`'s buckets move in **opposite directions** as training proceeds:
+
+| k | 2000 | **8000** | 16000 | **30000** |
+|---:|---:|---:|---:|---:|
+| 0 | .3876 | **.2906** | .2931 | .3435 |
+| 20 | .0580 | **.0403** | .0410 | .0504 |
+| 90 | .0034 | .0015 | .0009 | **.00055** |
+| 99 | .0040 | .0014 | .0007 | **.00019** |
+
+At `k=0` it degrades 18% past step 8,000. At `k=99` it improves **7.2×** all the way to 30k. Crossover around `k = 60-70`.
+
+So what the averaged curve reported as "overfitting after 8k" is really a **trade**: the model gives up low-`k` precision to buy high-`k` accuracy. Only the low-`k` half bears on grasping.
+
+Plausible mechanism, flagged as interpretation: at high `k` the task is coarse — push noise toward the data manifold — and memorising training trajectories transfers. At low `k` the task is precise per-instance action prediction, where memorisation hurts on held-out episodes.
+
+⚠️ Even the best checkpoint explains only **71%** of the variance at `k=0`, against 99.9% at `k=99`. That gap is where the grasping problem lives, and no checkpoint here closes it.
+
+## ⚠️ The 60k resume is a WARM RESTART, not a continuation
+
+Recorded because it would otherwise corrupt any reading of the 60k numbers:
+
+```
+last lr in the 30k run : 3.8e-09    (cosine fully annealed)
+first lr after resume  : 5.0e-05    (~7 orders of magnitude higher)
+```
+
+The cosine schedule is defined **over `steps`**, so raising `--steps` from 30000 to 60000 reshapes it: step 30k stops being the end of the anneal and becomes the midpoint of a longer one, at ~half of peak LR (1e-4/2 = 5e-5). That is exactly what is logged, and it explains the jump at the first eval after resume (`eval_loss` 0.0536 → 0.0583, train 0.061 → 0.066).
+
+`resume_dpt_paper.sbatch`'s header claimed "every parameter is identical by construction — only the CLI `--steps` override changes." Literally true and materially misleading: `--steps` also reshapes the LR schedule.
+
+In mitigation, a re-anneal was the only option — at `lr = 3.8e-09` the model cannot move, so extending under the original schedule would have been a no-op. But **60k results are not a continuation of the same optimisation trajectory** and must not be plotted as one.
+
+Given the k-curves, the resume is also less interesting than when it was proposed: `paper` is not converged-but-undertrained, it is over-regularised, and it starts 1.5-3× behind at every `k`.
+
 ### Next steps, in priority order
 
-1. **`k`-bucketed eval** across both arms' checkpoints. No training, no arm time, and it decides whether `paper`'s higher average hides a better low-`k` regime — which is the regime that grasps.
-2. **Roll out `unreg @ 8000` and `paper @ 26000`** on the same 15 episodes as the CNN and ACT runs. This is the only thing that settles reading 1 vs reading 2.
-3. **An intermediate-regularisation arm** (e.g. wd 1e-4, dropout 0.1), if 1 and 2 suggest `paper` is underfitting rather than simply differently-fit.
+1. ~~`k`-bucketed eval~~ **DONE** (job `9149944`) — answer: no hidden advantage, `paper` loses at 15/15 buckets.
+2. **Roll out `unreg @ 8000`** on the same 15 episodes as the CNN and ACT runs. Now the single highest-value action: it is the best DP-T checkpoint by every offline measure available, and offline measures have already been shown not to predict task success here. `paper @ 26000` is no longer worth arm time — it loses at every bucket to a checkpoint we can roll out instead.
+   ⚠️ Blocked on the rig question: the CVAE baseline collapsed 27% → 8% on the corrected clamp position and `replay_compare` was never run. Any new rollout number inherits that.
+3. **An intermediate-regularisation arm** (e.g. wd 1e-4, dropout 0.1). Promoted from conditional to warranted: the k-curves show `unreg` overfits ONLY below k≈60 while `paper` underfits everywhere, so the useful setting is between them. Targeting the low-`k` regime specifically — where even the best checkpoint explains just 71% of the variance — is the sharper version of this.
 4. **`n_emb=768` is free** (calibration: 223.8 ms vs 222.7 ms/step) if capacity turns out to be the limit rather than regularisation.
