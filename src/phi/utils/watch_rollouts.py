@@ -215,6 +215,15 @@ def build_config(args, cameras: dict[str, int | str]):
     from lerobot.rollout import RolloutConfig
     from lerobot.rollout.configs import BaseStrategyConfig
 
+    # MUST precede PreTrainedConfig.from_pretrained. That call resolves the config's
+    # "type" field through draccus's choice registry, and `diffusion_transformer` only
+    # enters that registry when the @PreTrainedConfig.register_subclass decorator in
+    # dp_transformer.py executes -- i.e. on import. Without this line, loading any
+    # DP-transformer checkpoint dies with:
+    #     DecodingError: Couldn't find a choice class for 'diffusion_transformer'
+    # Harmless for ACT/DP checkpoints; it only adds a registry entry.
+    import phi.policies.dp_transformer  # noqa: F401
+
     policy_cfg = PreTrainedConfig.from_pretrained(args.model, revision=args.revision)
     policy_cfg.pretrained_path = args.model
 

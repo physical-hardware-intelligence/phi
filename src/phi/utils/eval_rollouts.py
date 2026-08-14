@@ -239,8 +239,17 @@ def run_rollout(model: str, cameras: dict[str, int], task: str, duration: int,
         f"{n}: {{type: opencv, index_or_path: {i}, width: 640, height: 480, fps: 30, fourcc: MJPG}}"
         for n, i in cameras.items()
     )
+    # NOT the bare `lerobot-rollout` console script. That launches a fresh interpreter
+    # which never imports our port, so the @PreTrainedConfig.register_subclass decorator
+    # in dp_transformer.py never runs and any diffusion_transformer checkpoint dies with
+    #     DecodingError: Couldn't find a choice class for 'diffusion_transformer'
+    # An import in THIS file cannot fix that -- the failure is in the child process.
+    # So we reproduce the console script's own body (lerobot.scripts.lerobot_rollout:main)
+    # with the registration import in front of it.
     cmd = [
-        "lerobot-rollout",
+        sys.executable, "-c",
+        "import sys; import phi.policies.dp_transformer; "
+        "from lerobot.scripts.lerobot_rollout import main; sys.exit(main())",
         "--strategy.type=base",
         f"--policy.path={model}",
         "--robot.type=so101_follower",
