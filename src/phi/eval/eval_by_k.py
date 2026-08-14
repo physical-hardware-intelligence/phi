@@ -64,14 +64,17 @@ import torch
 import torch.nn.functional as F
 
 import phi.policies.dp_transformer  # noqa: F401  -- registers diffusion_transformer
+# Module-level ON PURPOSE. These were function-local and a wrong module path
+# (lerobot.constants, which does not exist -- it is lerobot.utils.constants)
+# survived `--help` and only failed on a compute node. Import at module level so
+# any such error surfaces the moment the script is invoked at all.
+from lerobot.utils.constants import ACTION, OBS_IMAGES
 
 DEFAULT_BUCKETS = "0,2,5,10,15,20,30,40,50,60,70,80,90,95,99"
 
 
 def _stack_images(policy, batch: dict) -> dict:
     """Reproduce DiffusionPolicy.forward's image stacking, which compute_loss expects."""
-    from lerobot.constants import OBS_IMAGES
-
     if not policy.config.image_features:
         return batch
     batch = dict(batch)
@@ -98,8 +101,6 @@ def loss_at_k(model, batch: dict, k: int, eps: torch.Tensor,
     batch against the transformer backbone's 9,020,934 -- so this is most of the
     runtime, not a micro-optimisation.
     """
-    from lerobot.constants import ACTION
-
     trajectory = batch[ACTION]
     ts = torch.full((trajectory.shape[0],), k, dtype=torch.long, device=trajectory.device)
     noisy = model.noise_scheduler.add_noise(trajectory, eps, ts)
@@ -155,8 +156,9 @@ def evaluate(checkpoint: Path, buckets: list[int], device: str, max_batches: int
     for bi, batch in enumerate(loader):
         if max_batches is not None and bi >= max_batches:
             break
-        from lerobot.constants import ACTION
 
+        # Same uint8 -> float32/255 step the training loop applies before the
+        # preprocessor; skipping it would silently change the input scale.
         for key in list(batch.keys()):
             if torch.is_tensor(batch[key]) and batch[key].dtype == torch.uint8:
                 batch[key] = batch[key].to(dtype=torch.float32) / 255.0
