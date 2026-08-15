@@ -235,8 +235,23 @@ def build_config(args, cameras: dict[str, int | str]):
     # predicts 50 actions, it just discards more of the stale tail. Worth trying
     # 10-15 if the arm looks confident early then wanders.
     if args.n_action_steps:
-        if args.n_action_steps > policy_cfg.chunk_size:
-            sys.exit(f"  --n-action-steps must be <= chunk_size ({policy_cfg.chunk_size})")
+        # The ceiling differs by policy family and `chunk_size` does NOT exist on
+        # DiffusionConfig -- reading it raised AttributeError for any DP checkpoint.
+        #
+        # For diffusion, generate_actions() slices actions[:, start:start+n_action_steps]
+        # with start = n_obs_steps - 1, because the horizon is anchored at the OLDEST
+        # observation, so index 0 is an action that already happened and is discarded.
+        # That makes the true ceiling horizon - n_obs_steps + 1, and asking for more is
+        # SILENTLY TRUNCATED by Python slicing rather than raising.
+        if hasattr(policy_cfg, "chunk_size"):
+            cap, why = policy_cfg.chunk_size, "chunk_size"
+        else:
+            cap = policy_cfg.horizon - policy_cfg.n_obs_steps + 1
+            why = (f"horizon - n_obs_steps + 1 = {policy_cfg.horizon} - "
+                   f"{policy_cfg.n_obs_steps} + 1")
+        if args.n_action_steps > cap:
+            sys.exit(f"  --n-action-steps must be <= {cap}  ({why})\n"
+                     f"  asking for more is silently truncated, not an error.")
         policy_cfg.n_action_steps = args.n_action_steps
 
     if args.device:

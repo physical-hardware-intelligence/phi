@@ -23,6 +23,7 @@ nav:
       - "Diffusion Policy — CNN backbone": theory/diffusion-policy-shapes.md
       - "Diffusion Policy — Transformer backbone": theory/diffusion-policy-transformer.md
       - "SmolVLA": theory/smolvla.md
+      - "Image preprocessing (all policies)": theory/image-preprocessing.md
 
 markdown_extensions:
   - admonition

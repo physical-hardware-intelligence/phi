@@ -14,6 +14,7 @@ Find your model, read its page. Each is self-contained apart from the prerequisi
 | **Diffusion Policy — CNN** | [diffusion-policy-shapes](diffusion-policy-shapes.md) | reference — every tensor, VRAM, config traps | training the default UNet backbone |
 | **Diffusion Policy — Transformer** | [diffusion-policy-transformer](diffusion-policy-transformer.md) | story + reference, with our measured results | training `diffusion_transformer`, or reading our A/B |
 | **SmolVLA** | [smolvla](smolvla.md) | story + reference, measured from source | training or evaluating a VLA |
+| **all of them** | [image-preprocessing](image-preprocessing.md) | how a frame is shrunk, and what that costs | adding a vision backbone, or changing `resize_shape` |
 
 **Suggested reading order if you are new:** `diffusion-policy-why` → `diffusion-policy-shapes` → `act-why` → `act-shapes` → `diffusion-policy-transformer` → `smolvla`.
 
