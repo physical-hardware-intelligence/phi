@@ -77,6 +77,12 @@ import torch
 import torch.nn.functional as F
 
 import phi.policies.dp_transformer  # noqa: F401  -- registers diffusion_transformer
+import phi.policies.dp_patch  # noqa: F401  -- registers diffusion_patch
+# 🚨 BOTH imports are load-bearing HERE, in the module that runs. Registration fires
+# at import time and only affects the process that imports. Without the second line a
+# diffusion_patch checkpoint dies with a DecodingError naming every OTHER policy type,
+# which reads like a typo rather than a missing import. Cost 2 GPU jobs on 2026-08-15;
+# same root cause as e731502 (rollout scripts) and f2d3e6b (the trainer).
 # Module-level ON PURPOSE. These were function-local and a wrong module path
 # (lerobot.constants, which does not exist -- it is lerobot.utils.constants)
 # survived `--help` and only failed on a compute node. Import at module level so

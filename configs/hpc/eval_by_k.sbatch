@@ -32,11 +32,25 @@
 set -uo pipefail
 PROJECT=/scratch/$USER/phi
 
+# RUN is a full results/ directory name, so this works for dpt_* and dpp_* alike.
+# Arms 2-5 answer ONE question: is bidirectional's held-out advantage concentrated
+# at LOW k, or uniform across k?
+#   Low k is where epsilon-prediction is hardest (k=0: signal 0.9997, noise 0.0251,
+#   so recovering eps amplifies any residual uncertainty ~40x) AND where a
+#   bidirectional token gains most, because its neighbours are near-clean and
+#   therefore informative. If the advantage is concentrated there, the 2.67x may
+#   partly measure "easier sub-problem" rather than "better policy". If it is flat
+#   across k, that reading is dead and the advantage is structural.
 case $SLURM_ARRAY_TASK_ID in
-  0) ARM=unreg; STEPS=2000,8000,16000,30000 ;;   # 8000 is its held-out minimum
-  1) ARM=paper; STEPS=2000,8000,16000,26000,30000 ;;  # 26000 is its minimum
-  *) echo "bad array index"; exit 1 ;;
+  0) RUN=dpt_unreg_emb256;   STEPS=2000,8000,16000,30000 ;;        # 8000 is its minimum
+  1) RUN=dpt_paper_emb256;   STEPS=2000,8000,16000,26000,30000 ;;  # 26000 is its minimum
+  2) RUN=dpt_bidir_emb256;   STEPS=8000,16000,30000 ;;   # ResNet  bidirectional
+  3) RUN=dpp_bidir_emb256;   STEPS=8000,16000,30000 ;;   # patches bidirectional (dense)
+  4) RUN=dpp_causal_emb256;  STEPS=8000,16000,30000 ;;   # patches causal      (dense)
+  5) RUN=dpp_avgpool_emb256; STEPS=8000,16000,30000 ;;   # patches bidirectional (pooled)
+  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-5)"; exit 1 ;;
 esac
+ARM=${RUN}
 
 export PYTHONNOUSERSITE=1
 export http_proxy=http://10.99.0.130:3128
@@ -57,11 +71,11 @@ echo " node $(hostname)"
 echo "=============================================================="
 
 srun python -m phi.eval.eval_by_k \
-  --sweep $PROJECT/results/dpt_${ARM}_emb256 \
+  --sweep $PROJECT/results/${RUN} \
   --steps $STEPS \
   --device cuda \
   --seed 1000 \
-  --out $PROJECT/repo/outputs/k_eval_${ARM}.csv
+  --out $PROJECT/repo/outputs/k_eval_${RUN}.csv
 
 echo "rc=$?"
 echo " NOTE: read the var_explained column, not raw mse. Raw mse mostly"
