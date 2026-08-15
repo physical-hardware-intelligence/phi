@@ -31,6 +31,24 @@
 #   3. Roughness is NOT expected to improve. Dense patches change what the model
 #      sees, not how the loss prices temporal frequency. That problem is still open.
 #
+# ARMS 2-3 ADDED AFTER READING THE PAPER (arXiv 2607.18236), which the first
+# submission was built without. Two things it changed:
+#   a) Their ResNet baselines are FROZEN too (Table 3: DP(ResNet-18) 29.35M total,
+#      9.09M trainable; S3.5 "we freeze the image encoder and exclusively train the
+#      policy"). OUR control trains ResNet-18 from scratch on this task, so arms 0-1
+#      vs the control confound DENSITY with FROZEN-vs-TRAINED. Arms 2-3 fix that:
+#      identical frozen DINOv2, identical everything, only the bottleneck differs.
+#      This is the ONLY comparison in the study that isolates density.
+#   b) Their Table 12 mask ablation is arms 0-1: "Full" 0.83/1.10 vs "Block-causal"
+#      0.83/1.24 on DP (Push-T/Cube) -- they find block-causal >= full, we measured
+#      full 2.28x BETTER on eval_loss. Unreconciled. Candidate: their pred_horizon
+#      is 6 (Table 11), ours is 48, and causal self-attention penalises long chunks
+#      far harder. [UNVERIFIED]
+#
+# PREDICTION 4 (their Table 4, Push-T: 256 patches 0.69 -> 1 patch 0.48): avg/cls
+# should be MUCH worse than dense. If instead avg ~= dense, density does not matter
+# on this task and the whole gap to the ResNet control is frozen-vs-trained.
+#
 # 🚨 crop_ratio is 0.875, NOT the control's 0.9. Not a preference: DINOv2's
 #    PatchEmbed asserts H%14==0. 240x320*0.875 = 210x280 = exactly 15x20 = 300
 #    patches, zero remainder. 0.9 gives 216x288 and CRASHES.
@@ -52,9 +70,11 @@ PROJECT=/scratch/$USER/phi
 REPO_ID=BrutalCaesar/phi_so101_cubes_cylinder_recovery_v1
 
 case $SLURM_ARRAY_TASK_ID in
-  0) CAUSAL=false; TAG=bidir ;;   # matches the winning ResNet arm
-  1) CAUSAL=true;  TAG=causal ;;  # matches patch_policy's hardcoded default
-  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-1)"; exit 1 ;;
+  0) CAUSAL=false; POOL=none; TAG=bidir   ;;  # dense, matches the winning ResNet arm
+  1) CAUSAL=true;  POOL=none; TAG=causal  ;;  # dense, matches patch_policy's hardcoded default
+  2) CAUSAL=false; POOL=avg;  TAG=avgpool ;;  # their dino_patch_avg_pool
+  3) CAUSAL=false; POOL=cls;  TAG=cls     ;;  # their dino_cls
+  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-3)"; exit 1 ;;
 esac
 
 STEPS=${STEPS:-30000}
@@ -129,8 +149,8 @@ PY
 echo "=============================================================="
 echo " DP-PATCH  task $SLURM_ARRAY_TASK_ID  TAG=$TAG  causal_attn=$CAUSAL"
 echo "   encoder : DINOv2 ViT-S/14 FROZEN, 210x280 -> 15x20 = 300 patches/cam"
-echo "   memory  : 3 cams x 300 + 1 state = 901 tokens/step, T_cond = 1803"
-echo "   params  : 9,532,038 trainable + 22,056,576 frozen"
+echo "   pooling : patch_pool=$POOL   (none -> T_cond 1803 | avg,cls -> T_cond 9)"
+echo "   params  : none 9,532,038 | avg/cls 9,072,774 trainable, + 22,056,576 frozen"
 echo "   control : dpt_${TAG}_emb256 (ResNet row, already trained)"
 echo "   To/Ta/Tp = $TO/$TA/$TP, DDIM 100 train / 16 eval, wd $WDECAY, seed 1000"
 echo " node $(hostname)"
@@ -155,6 +175,7 @@ srun python -m phi.train.train_dp_transformer \
   --policy.n_head=$N_HEAD \
   --policy.n_cond_layers=$N_COND_LAYERS \
   --policy.causal_attn=$CAUSAL \
+  --policy.patch_pool=$POOL \
   --policy.p_drop_emb=$DROP_EMB \
   --policy.p_drop_attn=$DROP_ATTN \
   --policy.optimizer_weight_decay=$WDECAY \

@@ -93,7 +93,11 @@ class PatchEncoder(nn.Module):
                 f"ASSERTS on this -- it will not pad or truncate. With resize_shape="
                 f"{tuple(config.resize_shape)} use crop_ratio=0.875 to land on 210x280."
             )
-        self.n_patches = (h // patch) * (w // patch)
+        # `pool` is THE ablation: it holds the backbone, the resize, the crop and every
+        # downstream tensor fixed and changes only the bottleneck. Mirrors the reference's
+        # configs/encoder/dino_patch{,_avg_pool,_cls}.yaml.
+        self.pool = config.patch_pool
+        self.n_patches = 1 if self.pool != "none" else (h // patch) * (w // patch)
         self.feature_dim = self.backbone.embed_dim
 
         # Frozen means frozen: no grad, and never leaves eval mode (see `train` below).
@@ -122,7 +126,15 @@ class PatchEncoder(nn.Module):
             )
         x = (x.clamp(0, 1) - self._mean) / self._std
         with torch.no_grad():
-            return self.backbone.forward_features(x)["x_norm_patchtokens"]
+            feats = self.backbone.forward_features(x)
+        if self.pool == "avg":
+            # Mean over the patch axis: keeps WHAT is in the frame, discards WHERE.
+            # dino.py:54 `emb = torch.mean(emb, dim=-2)`.
+            return feats["x_norm_patchtokens"].mean(dim=-2, keepdim=True)
+        if self.pool == "cls":
+            # The CLS token instead -- a learned summary rather than an average.
+            return feats["x_norm_clstoken"].unsqueeze(1)
+        return feats["x_norm_patchtokens"]
 
 
 class PatchBackbone(nn.Module):
@@ -227,6 +239,15 @@ class DiffusionPatchConfig(DiffusionTransformerConfig):
     dino_repo: str = "facebookresearch/dinov2:b48308a"
     dino_model: str = "dinov2_vits14"
 
+    # "none" = every patch token (dense, the paper's method)
+    # "avg"  = mean over patches -> 1 token/camera   (their dino_patch_avg_pool)
+    # "cls"  = the CLS token instead -> 1 token/cam  (their dino_cls)
+    # This is the ONLY knob that isolates DENSITY: backbone, resize, crop and decoder
+    # are byte-identical across the three, so a difference cannot be attributed to
+    # anything else. Compare against the ResNet arms with care -- SpatialSoftmax keeps
+    # 32 keypoint COORDINATES per camera, so it is a spatial bottleneck, not a global one.
+    patch_pool: str = "none"
+
     crop_ratio: float = 0.875          # -> 210x280 -> exactly 15x20 patches, no remainder
     resize_shape: tuple = (240, 320)   # same as the DP-T control, so only the crop differs
     causal_attn: bool = False          # measured 2.67x better + no overfitting on our data
@@ -235,6 +256,12 @@ class DiffusionPatchConfig(DiffusionTransformerConfig):
 
     def __post_init__(self):
         super().__post_init__()
+        if self.patch_pool not in ("none", "avg", "cls"):
+            raise ValueError(
+                f"patch_pool must be one of 'none' | 'avg' | 'cls', got {self.patch_pool!r}. "
+                "A typo here would silently fall through to dense patches and quietly "
+                "invalidate the density ablation."
+            )
         visual = self.normalization_mapping.get("VISUAL")
         if visual is not None and getattr(visual, "name", str(visual)) != "IDENTITY":
             raise ValueError(
