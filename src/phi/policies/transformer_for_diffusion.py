@@ -43,14 +43,15 @@ class TransformerForDiffusion(ModuleAttrMixin):
             causal_attn: bool=False,
             time_as_cond: bool=True,
             obs_as_cond: bool=False,
-            n_cond_layers: int = 0
+            n_cond_layers: int = 0,
+            n_patches: int = 1
         ) -> None:
         super().__init__()
 
         # compute number of tokens for main trunk and condition encoder
         if n_obs_steps is None:
             n_obs_steps = horizon
-        
+
         T = horizon
         T_cond = 1
         if not time_as_cond:
@@ -59,7 +60,12 @@ class TransformerForDiffusion(ModuleAttrMixin):
         obs_as_cond = cond_dim > 0
         if obs_as_cond:
             assert time_as_cond
-            T_cond += n_obs_steps
+            # n_patches > 1 -> each observation step contributes MANY tokens
+            # (dense ViT patches, cameras already folded in). n_patches=1 is the
+            # original behaviour: one pooled token per step. See gaoyuezhou/patch_policy
+            # models/diffusion_policy/diffusion_policy.py:164 (MIT).
+            T_cond += n_obs_steps * n_patches
+        self.n_patches = n_patches
 
         # input embedding stem
         self.input_emb = nn.Linear(input_dim, n_emb)
@@ -142,14 +148,30 @@ class TransformerForDiffusion(ModuleAttrMixin):
             self.register_buffer("mask", mask)
             
             if time_as_cond and obs_as_cond:
+                # 🚨 THE STOCK RULE `t >= s-1` IS ONLY VALID AT n_patches == 1.
+                # It compares an ACTION TIMESTEP `t` against a MEMORY SLOT `s`. Those
+                # coincide only when each obs step contributes exactly one token. With
+                # dense patches the slot index is a flattened composite
+                # (step, camera, patch), so `s-1` is not a timestep at all -- measured
+                # at T_cond=1803 the rule blocks 98.59% of cells and strands 1754 of
+                # 1803 memory tokens, leaving only step 0 / camera 0 / patches 0..47.
+                #
+                # The block form below decodes the composite first: map an action
+                # timestep to its observation WINDOW (clamped -- actions run past the
+                # last observation), then admit every patch in windows 0..window.
+                # Ported from gaoyuezhou/patch_policy diffusion_policy.py:247-277 (MIT).
+                #
+                # VERIFIED EQUIVALENT to the stock rule at n_patches=1 for every
+                # (T, n_obs) in {8,16,48,64} x {1,2,3,4}, so DP-T is unaffected.
                 S = T_cond
-                t, s = torch.meshgrid(
-                    torch.arange(T),
-                    torch.arange(S),
-                    indexing='ij'
-                )
-                mask = t >= (s-1) # add one dimension since time is the first token in cond
-                mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+                n_windows = n_obs_steps
+                allowed = torch.zeros((T, S), dtype=torch.bool)
+                allowed[:, 0] = True                    # the time token is always visible
+                for t_idx in range(T):
+                    window = min(t_idx, n_windows - 1)
+                    n_visible = (window + 1) * n_patches
+                    allowed[t_idx, 1:1 + n_visible] = True
+                mask = allowed.float().masked_fill(~allowed, float('-inf')).masked_fill(allowed, float(0.0))
                 self.register_buffer('memory_mask', mask)
             else:
                 self.memory_mask = None
