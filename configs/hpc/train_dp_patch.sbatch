@@ -100,17 +100,30 @@ source "$PROJECT/repo/configs/hpc/_preflight.sh"
 WANDB_MODE_ARG=${WANDB_MODE_ARG:-online}
 
 # Fail fast. $PROJECT/repo is an rsync SNAPSHOT, not a git checkout.
-python - <<'PY' || { echo "❌ dp_patch not importable / DINOv2 missing. See error above."; exit 1; }
+#
+# 🚨 THIS CHECK MUST IMPORT THE TRAIN MODULE, NOT dp_patch DIRECTLY.
+#    Registration happens at import time and draccus builds `--policy.type`'s choice
+#    list from what is registered IN THE TRAINING PROCESS. A preflight that imports
+#    dp_patch itself passes even when the train module forgot to -- which is exactly
+#    what happened on 9204468: preflight green, then `invalid choice: 'diffusion_patch'`
+#    two minutes later. Import what the real run imports, and assert on the CHOICE LIST.
+python - <<'PY' || { echo "❌ preflight failed -- see error above. rsync from the Mac?"; exit 1; }
 import os, torch
-import phi.policies.dp_patch  # noqa: F401
-from lerobot.policies.factory import get_policy_class
-assert get_policy_class("diffusion_patch").__name__ == "DiffusionPatchPolicy"
-assert get_policy_class("diffusion_transformer").__name__ == "DiffusionTransformerPolicy"
+import phi.train.train_dp_transformer  # noqa: F401  <- the REAL entrypoint
+from lerobot.configs.policies import PreTrainedConfig
+
+choices = set(PreTrainedConfig.get_known_choices())
+for want in ("diffusion_patch", "diffusion_transformer"):
+    assert want in choices, (
+        f"'{want}' is NOT in --policy.type's choices after importing the train module. "
+        f"Add `import phi.policies.<mod>` to phi/train/train_dp_transformer.py. Got: {sorted(choices)}"
+    )
 torch.hub._validate_not_a_forked_repo = lambda a, b, c: True
 m = torch.hub.load("facebookresearch/dinov2:b48308a", "dinov2_vits14", verbose=False)
 n = sum(p.numel() for p in m.parameters())
 assert n == 22_056_576, f"DINOv2 param count {n:,} != 22,056,576"
-print(f"  port OK | DINOv2 {n:,} params | TORCH_HOME={os.environ.get('TORCH_HOME')}")
+print(f"  port OK | policy.type choices include diffusion_patch | DINOv2 {n:,} params")
+print(f"  TORCH_HOME={os.environ.get('TORCH_HOME')}")
 PY
 
 echo "=============================================================="
@@ -176,3 +189,8 @@ echo " Check prediction 2 FIRST: did eval_loss RISE after its minimum?"
 echo "   unreg did (overfit). If neither patch arm does, that is 9.5M vs 42.6M"
 echo "   trainable params, not evidence that dense patches help."
 echo " Then roughness -- and expect NO improvement there (prediction 3)."
+
+# 🚨 Propagate srun's status. Without this the script exits on the last `echo` and
+# sacct reports COMPLETED 0:0 for a run that died in 2 minutes -- which is how
+# 9204468 looked green while both arms had crashed.
+exit $RC

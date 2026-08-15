@@ -18,7 +18,16 @@ DP-CNN comparison honest, differing only in the denoising backbone.
 """
 
 import phi.policies.dp_transformer  # noqa: F401  -- import registers the policy
+import phi.policies.dp_patch  # noqa: F401  -- ditto; `diffusion_patch` needs this HERE
 from lerobot.scripts.lerobot_train import train
+
+# 🚨 BOTH imports must live in THIS module, not merely in a preflight check.
+# `@PreTrainedConfig.register_subclass` fires at import time, and draccus builds
+# argparse's `--policy.type` choice list from whatever is registered in THIS process.
+# A preflight heredoc that imports the module proves nothing: it is a different
+# interpreter. Symptom is `invalid choice: 'diffusion_patch'` listing every other
+# policy, which reads like a typo rather than a missing import. Cost 2 GPU jobs
+# on 2026-08-15; same root cause as e731502 for the rollout scripts.
 
 
 def main() -> None:
