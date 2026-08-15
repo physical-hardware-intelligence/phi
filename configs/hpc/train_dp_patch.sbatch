@@ -49,6 +49,37 @@
 # should be MUCH worse than dense. If instead avg ~= dense, density does not matter
 # on this task and the whole gap to the ResNet control is frozen-vs-trained.
 #
+# ── PREDICTION 4 WAS FALSIFIED, IN THE OPPOSITE DIRECTION ────────────────────
+#   min eval_loss @30k:  avg 0.0117 · cls 0.0119 · ResNet-bidir 0.0132 ·
+#                        dense 0.0163 · ResNet-causal 0.0287 · dense-causal 0.0371
+#   POOLED beats DENSE by 28%, ahead at every eval from step 4000. avg and cls
+#   agree within 1.7%, so it is the TOKEN COUNT, not the choice of summary.
+#
+# ARM 4 tests the leading explanation for that inversion. Paper S2.2 says "patches
+# maintain full bidirectional attention intra-frame" -- but NEITHER their diffusion
+# code nor ours does that: n_cond_layers=0 makes the conditioning encoder a
+# per-token MLP, so 1800 patch tokens never attend each other anywhere. Measured:
+# perturb one memory token and 1/1803 outputs change at ncl=0, 1803/1803 at ncl=2.
+# Hypothesis: dense loses BECAUSE nothing fuses it -- 1800 unfused tokens are worse
+# than one averaged token, since the decoder got 601x the input and zero extra
+# capacity to combine it, plus 461,568 position rows to learn from 65k frames.
+#
+# ARM 4 IS UNMASKED (full bidirectional over all 1803 memory tokens), NOT the
+# paper's block-causal. Two reasons: (a) bidirectional beat causal in every arm
+# measured here, and inter-frame causality is vacuous on the memory anyway since
+# both observation frames are already in hand at inference; (b) flash attention
+# does not support arbitrary additive masks, so the masked variant falls back to a
+# slower kernel and may materialise the 1803^2 matrix (3.33 GB/layer at batch 64) --
+# the same SDPA effect that cost arm 1 twenty percent of its throughput.
+#
+# PREDICTION 5: if arm 4 beats avg (0.0117), dense patches need a fusion stage and
+# the paper's S2.2 is right about the architecture even though its code omits it.
+# If arm 4 only reaches dense (0.0163), fusion is not the missing piece. If it lands
+# between, fusion helps but does not close the gap.
+# COST NOTE: whatever it scores, ncl=2 more than DOUBLES inference (the cond encoder
+# runs INSIDE the 16-step denoising loop: 177 -> 374 GFLOP/chunk) and forfeits the
+# memory-caching optimisation that ncl=0 permits. A win here is not a free win.
+#
 # 🚨 crop_ratio is 0.875, NOT the control's 0.9. Not a preference: DINOv2's
 #    PatchEmbed asserts H%14==0. 240x320*0.875 = 210x280 = exactly 15x20 = 300
 #    patches, zero remainder. 0.9 gives 216x288 and CRASHES.
@@ -70,11 +101,12 @@ PROJECT=/scratch/$USER/phi
 REPO_ID=BrutalCaesar/phi_so101_cubes_cylinder_recovery_v1
 
 case $SLURM_ARRAY_TASK_ID in
-  0) CAUSAL=false; POOL=none; TAG=bidir   ;;  # dense, matches the winning ResNet arm
-  1) CAUSAL=true;  POOL=none; TAG=causal  ;;  # dense, matches patch_policy's hardcoded default
-  2) CAUSAL=false; POOL=avg;  TAG=avgpool ;;  # their dino_patch_avg_pool
-  3) CAUSAL=false; POOL=cls;  TAG=cls     ;;  # their dino_cls
-  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-3)"; exit 1 ;;
+  0) CAUSAL=false; POOL=none; NCL=0; TAG=bidir   ;;  # dense, matches the winning ResNet arm
+  1) CAUSAL=true;  POOL=none; NCL=0; TAG=causal  ;;  # dense, matches patch_policy's hardcoded default
+  2) CAUSAL=false; POOL=avg;  NCL=0; TAG=avgpool ;;  # their dino_patch_avg_pool
+  3) CAUSAL=false; POOL=cls;  NCL=0; TAG=cls     ;;  # their dino_cls
+  4) CAUSAL=false; POOL=none; NCL=2; TAG=fusion  ;;  # dense + a FUSION STAGE (see below)
+  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-4)"; exit 1 ;;
 esac
 
 STEPS=${STEPS:-30000}
@@ -86,7 +118,7 @@ NUM_WORKERS=${NUM_WORKERS:-32}
 
 WDECAY=1e-6; DROP_ATTN=0.0
 EMB=${EMB:-256}
-N_LAYER=8; N_HEAD=4; N_COND_LAYERS=0; DROP_EMB=0.0
+N_LAYER=8; N_HEAD=4; N_COND_LAYERS=$NCL; DROP_EMB=0.0
 TO=2; TA=24; TP=48
 DROP=$((TP - TA - TO + 1))
 
