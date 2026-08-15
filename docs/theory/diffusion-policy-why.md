@@ -170,6 +170,138 @@ The randomness injected at each step is not a wart. **It is what picks which mod
 ---
 ---
 
+## 6a. The exact noise accounting, per step
+
+§6 says sampling takes many small steps. Here is precisely how small, on our
+16-step DDIM schedule.
+
+Every step does two things:
+
+```
+x0_hat  = (x_k - sqrt(1-abar_k)*eps_hat) / sqrt(abar_k)          SUBTRACT all of it
+x_(k-1) = sqrt(abar_(k-1))*x0_hat + sqrt(1-abar_(k-1))*eps_hat   ADD BACK slightly less
+```
+
+- **Subtracted: `sqrt(1-abar_k)` — 100% of the estimated noise**, every step.
+- **Added back: `sqrt(1-abar_(k-1))`** — the amount appropriate one level down.
+- **Net removal is the difference.**
+
+`eta = 0.0` for DDIM, so the noise added back is **the same `eps_hat`, not fresh
+noise**. That is what makes DDIM deterministic. DDPM (`eta=1`) would add a fresh
+random `z` instead.
+
+Measured on our schedule:
+
+```
+   k -> k_prev | noise coef IN  noise coef OUT   removed  net drop
+  90 ->     84 |        0.9902          0.9728    0.9902    0.0174
+  72 ->     66 |        0.9128          0.8706    0.9128    0.0421
+  48 ->     42 |        0.7004          0.6307    0.7004    0.0697
+  24 ->     18 |        0.3911          0.3034    0.3911    0.0877
+   6 ->      0 |        0.1206          0.0251    0.1206    0.0955
+   0 ->  final |        0.0251          0.0000    0.0251    0.0251
+
+  the coefficient walks 0.9902 -> 0.0000; the drops sum to exactly 0.9902
+```
+
+> 🔑 **The first step removes 1.8% of the noise present.** All 0.9902 is
+> subtracted, then 0.9728 is put straight back. That is deliberate: at `k=90`,
+> `1/sqrt(abar) = 7.2`, so the clean estimate is amplified garbage. Re-noising to
+> 0.9728 discards almost all of that guess while keeping the sliver it can
+> support.
+
+Two consequences worth carrying:
+
+- **The steps accelerate.** Net removal goes `0.0174 -> 0.0421 -> 0.0697 ->
+  0.0877 -> 0.0955`, ~5x larger at the end than the start. As `sqrt(abar)` grows
+  the estimate becomes trustworthy and more of it survives.
+- **Only the last step leaves a clean chunk.** From `k=0` there is no `k-1`, so
+  the coefficient goes to exactly zero with nothing added back. Every earlier
+  step hands you a still-noisy sample.
+
+And the invariant from §5 holds throughout — each step is a small rotation
+around the unit circle:
+
+```
+   k  signal sqrt(abar)  noise sqrt(1-abar)  sum of squares
+  90            0.1398              0.9902          1.0000
+  30            0.8798              0.4754          1.0000
+   0            0.9997              0.0251          1.0000
+```
+
+"How much noise was removed" and "how far around the circle did we turn" are the
+same question.
+
+## 6b. 🔑 Naming the problem: the objective is SCALE-BLIND ALONG TIME
+
+This is the most useful thing in this document, and it took a jittery robot to
+find it.
+
+**Nothing anywhere in DDPM distinguishes a fast wiggle from a slow arc.** Three
+measurements, each independent:
+
+1. **`betas` has shape `(100,)`** — one scalar per diffusion step `k`, with **no
+   index over the time axis `t`**. It multiplies all 48x6 = 288 elements by the
+   same number. It cannot say "timestep 3 matters more than timestep 40", let
+   alone "the arc matters more than the wiggle".
+2. **The injected noise is white along time.** Power per temporal frequency bin
+   measured flat at **4.111-4.222%**. Every temporal scale is corrupted equally.
+3. **MSE weights every temporal frequency equally.** Parseval, verified: sum of
+   squared error in time `36406.1016` = in frequency `36406.0977`.
+
+> **THE PROBLEM, NAMED: temporal smoothness is unpriced.** The loss never charges
+> more for an error in a period-2 component than a period-48 one. So nothing in
+> training pushes toward smooth output — **smoothness is entirely the
+> architecture's job**, and whatever inductive bias the denoiser has (or lacks)
+> decides the output's spectrum.
+
+DP-CNN has such a bias: its UNet compresses time **48 -> 12, a 4x reduction**
+(traced), making coarse structure cheap and fine structure expensive. A
+transformer has none; it prices every scale identically, so its errors surface at
+every scale.
+
+⚠️ Note what does NOT explain it, all measured and eliminated:
+- **not latency** — DP-T is 2.2x *faster* (107.6 ms vs 238.6 ms per re-plan)
+- **not regularisation** — the heavily-regularised arm was the *roughest* (0.02262)
+- **not chunk-boundary jumping** — spread across re-plans was identical (1.1x)
+- **not "convolution smooths"** — a `[-1,2,-1]` kernel *roughens* by 3.16x; only a
+  LOW-PASS kernel smooths, and a random one does nothing
+
+### The solution space this framing opens
+
+Because the objective is scale-blind, roughness can be attacked at exactly five
+places. Listed by where they intervene:
+
+| # | intervene on | concretely | status |
+|---|---|---|---|
+| 1 | **the denoiser's inputs** | make every action token see the whole chunk (`causal_attn=false`) | ✅ **DONE, worked** |
+| 2 | **the architecture** | give the transformer a temporal bottleneck, or a depthwise conv over time | untested |
+| 3 | **the objective** | frequency-weighted loss, or a penalty on the chunk's 2nd difference | untested |
+| 4 | **the forward process** | *coloured* noise matching the data spectrum, so fast content is never asked for | untested; check the literature first |
+| 5 | **the output** | low-pass the chunk before execution (`--smooth-k`) | implemented, treats the symptom |
+
+**Option 1 is the one that fired.** Causal masking meant action token `t` saw only
+`t' <= t`, and token 0 saw *only itself*. Adjacent tokens predicted from different
+information, so their errors were independent — and independent errors at adjacent
+timesteps **are** high-frequency noise. Bidirectional attention made the
+predictions mutually consistent. Measured, sampling from a real frame:
+
+```
+model                 step-to-step    span   rough/span   path/displacement
+DP-CNN                     0.00406  0.0996       0.0408                2.68
+DP-T causal                0.01522  0.2066       0.0737                6.03
+DP-T bidirectional         0.00928  0.2092       0.0443                2.77
+```
+
+The two DP-T arms **move the same amount** (span 0.207 vs 0.209), so this is
+clean: bidirectional wiggles **40% less per unit of motion**, and its path
+directness (2.77) essentially matches DP-CNN's (2.68). It also cut held-out loss
+~1.8x at every step.
+
+⚠️ **`causal_attn=True` was never the paper's stated value.** Table 8 does not list
+it; it came from the reference implementation's defaults. So it is an unexamined
+default that was costing ~1.8x on loss and ~2.2x on path directness.
+
 # Part II — how it sees
 
 The observation path turns **two cameras × 3×480×640** into **268 numbers**, and then never looks at an image again. Almost all of the compression happens in one 20-line module.
