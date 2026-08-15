@@ -550,6 +550,62 @@ Roll out DP checkpoints at 20k / 40k / 60k / 100k — spanning `eval_loss` 0.017
 
 ---
 
+## 17. Chunk smoothing — a zero-training mitigation, and why the objective does not do it for you
+
+DP-T's chunks are measurably rougher than DP-CNN's. Measured on a real frame, 16 noise draws:
+
+```
+model      mean |step-to-step|    span   roughness/span   path/displacement
+DP-CNN                 0.00406  0.0996           0.0408                2.68
+DP-T                   0.01522  0.2066           0.0737                6.03
+```
+
+DP-T moves 2.1x more AND wiggles 1.8x more per unit of range; its path is **6x its straight-line displacement** against DP-CNN's 2.7x. In joint units that is ~1.5 deg of direction reversal per frame at 30 fps.
+
+### Why the noise schedule cannot fix this
+
+A natural question: `beta_k` controls how much noise enters at each step, so does it not already encode which scale matters? **No, and the reason is that it lives on a different axis.**
+
+```
+betas shape (100,)   -> ONE SCALAR per diffusion step k
+```
+
+`k` indexes the DIFFUSION axis (how corrupted). `t` indexes the TIME axis (which moment in the trajectory). `beta_k` has **no index over `t`** — it multiplies all 48x6 = 288 elements by the same number. It cannot express "timestep 3 matters more than timestep 40", let alone "the slow arc matters more than the fast wiggle".
+
+Three measurements close it:
+
+1. **The noise is white along time.** Power per temporal frequency bin measured flat at 4.111-4.222%. Every temporal scale is corrupted equally.
+2. **MSE weights every temporal frequency equally.** Parseval, verified: sum of squared error in time `36406.1016` = in frequency `36406.0977`.
+3. **The target is the exact noise drawn**, not an estimate:
+
+```python
+eps       = torch.randn(trajectory.shape)
+timesteps = torch.randint(0, 100, ...)             # one k per sample, uniform
+noisy     = add_noise(trajectory, eps, timesteps)  # x_k = sqrt(abar) x0 + sqrt(1-abar) eps
+pred      = unet(noisy, timesteps, global_cond)
+target    = eps                                    # prediction_type == "epsilon"
+loss      = mse(pred, target)
+```
+
+> 🔑 The whole objective is **scale-blind along time**. The target is white, so scoring well *requires* reproducing its fast components, and MSE charges the same for an error there as anywhere else. At sampling, error in the fast components of `eps_hat` lands directly in `x_(k-1)` as jitter. Nothing in DDPM ever priced it.
+
+### The mitigation
+
+`--smooth-k` in `phi.utils.watch_rollouts` low-passes the chunk along time before execution. Measured on DP-T, DP-CNN's 0.00406 as target:
+
+```
+k=3  0.00850 (2.1x)   plan moved 0.81 pct of its own range
+k=5  0.00680 (1.7x)   1.03 pct
+k=7  0.00584 (1.4x)   1.18 pct
+k=9  0.00521 (1.3x)   1.35 pct
+```
+
+A straight line is its own local average, so trends pass through untouched while alternation cancels. **But it cannot tell shake from a genuinely fast move** — a gripper snap becomes a ramp. Start at k=5.
+
+⚠️ Applied to one model and not another this IS a changed variable. Filter both arms or neither.
+
+⚠️ This treats the symptom. The cause is architectural: the UNet's 4x temporal bottleneck (48 -> 12 steps, measured) makes coarse structure cheap and fine structure expensive, while a transformer prices every scale equally. Note also that **locality alone does not smooth** — measured, a `[-1,2,-1]` kernel *roughens* by 3.16x. Only a low-pass kernel smooths.
+
 ## See also
 
 - [diffusion-policy-why](diffusion-policy-why.md) — the diffusion process itself; read first

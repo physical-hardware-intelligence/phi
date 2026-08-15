@@ -207,6 +207,67 @@ def confirm_cameras(cameras: dict[str, int | str], force: bool) -> None:
         sys.exit("  Stopped. Fix the mapping with: python -m phi.utils.camera_realign\n")
 
 
+def install_chunk_smoother(k: int) -> None:
+    """Low-pass the predicted action chunk along TIME before it reaches the motors.
+
+    WHY. Measured 2026-08-14 on a real frame, 16 noise draws, 48-step chunks:
+
+        model      mean |step-to-step|   span    roughness/span   path/displacement
+        DP-CNN                 0.00406   0.0996          0.0408                2.68
+        DP-T                   0.01522   0.2066          0.0737                6.03
+
+    DP-T's path is 6x its straight-line displacement against DP-CNN's 2.7x, and
+    its power spectrum carries 1.5-2.2x more energy at EVERY band above the
+    fundamental. In joint terms that is ~1.5 deg of direction reversal per frame
+    at 30 fps -- a visibly shaking arm.
+
+    A moving average is the matched treatment: a straight line is its own local
+    average so trends pass through untouched, while alternation cancels. Measured
+    effect on DP-T, with DP-CNN's 0.00406 as the target:
+
+        k=3  0.00850 (2.1x)   plan moved 0.81% of its own range
+        k=5  0.00680 (1.7x)   1.03%
+        k=7  0.00584 (1.4x)   1.18%
+        k=9  0.00521 (1.3x)   1.35%
+
+    ⚠️ THIS TREATS THE SYMPTOM. The cause is that the UNet's 4x temporal
+    bottleneck (48 -> 12 steps) makes coarse structure cheap and fine structure
+    expensive, while a transformer prices every scale equally. Filtering hides
+    that; it does not fix it.
+
+    ⚠️ IT CANNOT TELL SHAKE FROM A GENUINELY FAST MOVE. A gripper snap is a sharp
+    step and smoothing turns it into a ramp. Start at k=5.
+
+    ⚠️ FAIR-TEST WARNING. Applied to one model and not another, this IS a changed
+    variable. Filter both arms or neither when comparing.
+
+    Replicate padding, so the first and last actions are not dragged toward zero.
+    """
+    if k <= 1:
+        return
+    if k % 2 == 0:
+        sys.exit(f"  --smooth-k must be odd (got {k}); an even window has no centre")
+
+    import torch
+    import torch.nn.functional as F
+    from lerobot.policies.pretrained import PreTrainedPolicy
+
+    orig = PreTrainedPolicy.predict_action_chunk
+
+    def smoothed(self, *a, **kw):
+        chunk = orig(self, *a, **kw)          # (B, T, A)
+        if chunk.ndim != 3 or chunk.shape[1] < k:
+            return chunk
+        w = torch.ones(1, 1, k, device=chunk.device, dtype=chunk.dtype) / k
+        b, t, d = chunk.shape
+        x = chunk.permute(0, 2, 1).reshape(b * d, 1, t)
+        y = F.conv1d(F.pad(x, (k // 2, k // 2), mode="replicate"), w)
+        return y.reshape(b, d, t).permute(0, 2, 1)
+
+    PreTrainedPolicy.predict_action_chunk = smoothed
+    print(f"  chunk smoothing ENABLED, moving average k={k} over the time axis")
+
+
 def build_config(args, cameras: dict[str, int | str]):
     import torch
     from lerobot.cameras.opencv import OpenCVCameraConfig
@@ -304,6 +365,10 @@ def main() -> None:
     p.add_argument("--n-action-steps", type=int, default=None,
                    help="actions executed per re-plan (trained: 50 = 1.67s open loop). "
                         "Lower = re-plans more often, no retraining needed. Try 10-15.")
+    p.add_argument("--smooth-k", type=int, default=1,
+                   help="odd moving-average window over the predicted chunk's TIME axis. "
+                        "1 = off. DP-T measured 3.7x rougher than DP-CNN; k=5 halves it "
+                        "for ~1 pct plan drift. Filter BOTH arms or neither when comparing.")
     p.add_argument("--device", default=None, help="cuda / mps / cpu (auto-detected)")
     p.add_argument("--display-data", action="store_true", help="stream to Rerun")
     p.add_argument("--force", action="store_true", help="bypass the preflight gates (loudly)")
@@ -318,6 +383,7 @@ def main() -> None:
 
     from lerobot.rollout import build_rollout_context, create_strategy
 
+    install_chunk_smoother(args.smooth_k)
     cfg = build_config(args, args.cameras)
     print(f"\n  model      {args.model}{'@' + args.revision if args.revision else ''}")
     print(f"  device     {cfg.device}")
