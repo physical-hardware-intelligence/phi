@@ -145,6 +145,57 @@ Three things worth sitting with:
 
 **The output is symmetric with the input.** After 8 decoder layers, `ln_f` then `head: Linear(256 → 6)` collapses back to `(B, 48, 6)`. **Same shape in, same shape out** — because Diffusion Policy is a repair operation on trajectories, not a function from observation to action. See [diffusion-policy-shapes §The framing](diffusion-policy-shapes.md#the-framing-that-makes-the-rest-make-sense).
 
+## 5a. Where the 198 comes from — the vision encoder, measured
+
+The decoder receives `(B, 2, 198)`. Here is every step that produces it, measured on our trained checkpoint. **This is the same encoder DP-CNN uses** — it is the one part the two backbones share, which is what makes DP-CNN vs DP-T a clean backbone comparison.
+
+### Three independent ResNets
+
+```
+use_separate_rgb_encoder_per_camera = True
+ModuleList of 3   weights shared between cam0 and cam1? False   (checked data_ptr)
+params each 11,197,088   total 33,591,264
+```
+
+Three genuinely separate ResNet-18s — the bet being that a wrist view and an overhead view deserve different filters. ACT bets the opposite and shares one backbone. Never A/B'd here.
+
+### The chain, one camera
+
+```
+raw                                (2, 3, 480, 640)
+Resize(240,320) antialias=True     (2, 3, 240, 320)
+CenterCrop(216,288)                (2, 3, 216, 288)     RandomCrop during training
+ResNet-18 body, stride 32          (2, 512,   7,   9)   216/32=6.75→7,  288/32=9.00→9
+Conv2d(512 → 32, kernel 1×1)       (2,  32,   7,   9)
+SpatialSoftmax                     (2,  32,   2)        ← H,W GONE
+flatten → Linear(64→64) → ReLU     (2,  64)
+```
+
+> 🚨 **The feature map is 7×9 = 63 cells.** Not the 15×20 = 300 of [diffusion-policy-shapes](diffusion-policy-shapes.md), which traces lerobot's *defaults* (no resize, no crop). Our config resizes to 240×320 and crops to 216×288 first, so the grid is **4.8× coarser**. Each of the 63 cells summarises a 32×32 patch of the crop — undoing the 2× resize, a **64×64 pixel region of the original camera frame**.
+
+### SpatialSoftmax — the index/value swap
+
+Three sub-operations. The middle one is the conceptual jump.
+
+**1. `Conv2d(512 → 32, kernel 1×1)`** — a per-cell mix *across channels only*, touching no neighbours. ResNet gave 512 learned detectors at each of 63 cells; this asks **which 32 combinations are worth locating**.
+
+**2. `softmax` over the flattened 63 cells** — each of the 32 channels independently becomes a **probability map over grid positions**. Verified: `channel 0 sums to 1.000000, peak cell 0.1031`.
+
+**3. Expectation against a fixed coordinate grid** — `(32, 63) @ (63, 2)`, i.e. `Σ p(cell)·coord(cell)`. Measured: `keypoint 0 landed at (x,y) = (+0.2367, −0.4906)` in `[-1,1]`. The grid is a fixed buffer, **not learned**.
+
+> 🔑 Before: *channel k says how strongly feature k fires, at every cell.* After: *channel k says **where** feature k is.* The `H,W` axes are consumed and replaced by an axis of size 2. The output is not features-at-locations — it **is** locations.
+
+Because it is a weighted mean rather than an argmax, a keypoint can land *between* cells: precision is set by softmax peakedness, not by the 7×9 spacing. That matters a lot at 63 cells.
+
+**Compression: 186,624 numbers → 64 per camera, i.e. 2,916×.** Lossy by construction — colour, texture, and *which* of two similar cubes are all gone. Only geometry survives.
+
+### And that is the 198
+
+```
+3 cams × 64 = 192   +   state 6   =   198
+unfold S=2                        →   (B, 2, 198)
+```
+
 ## 6. The memory block — how the observation becomes 3 tokens
 
 This is what cross-attention reads. It is assembled from two very different sources.
@@ -200,14 +251,12 @@ So the memory is literally **three tokens**:
 
 An action token can see earlier timesteps of the trajectory but not later ones. That is a real design choice, not an obvious one: the whole chunk is denoised *jointly*, so bidirectional attention was available and was not taken. The cost is that early tokens have very little context — token 0 sees only itself.
 
-**`memory_mask` — `(48, 3)`, and this one has a consequence nobody documents.**
+**`memory_mask` — `(48, 3)`.**
 
 ```python
 t, s = torch.meshgrid(torch.arange(T), torch.arange(S), indexing='ij')
 mask = t >= (s - 1)      # "add one dimension since time is the first token in cond"
 ```
-
-Working it out per memory token:
 
 | `s` | memory token | rule | effect |
 |---|---|---|---|
@@ -215,18 +264,63 @@ Working it out per memory token:
 | 1 | observation `t−1` | `t ≥ 0` | always visible |
 | 2 | observation `t` | `t ≥ 1` | **invisible to action token 0** |
 
-Measured:
+This looks like an off-by-one and is not. It is correct temporal causality, and the reason is §7a.
+
+### 7a. 🔑 The horizon does not start at "now" — and that is why action 0 is discarded
+
+Straight from the config, not interpretation:
 
 ```
-   action tok |    time k |   obs t-1 |     obs t
-            0 |      SEES |      SEES |   BLOCKED
-            1 |      SEES |      SEES |      SEES
-           47 |      SEES |      SEES |      SEES
+observation_delta_indices = [-1, 0]
+action_delta_indices      = [-1, 0, 1, 2, ... , 46]
 ```
 
-> 🚨 **Action token 0 — the very next action to execute — cannot attend to the most recent observation.** It sees only the older frame. This is upstream behaviour, byte-identical to `real-stanford/diffusion_policy`, and we have not verified whether it is intended or an off-by-one in the `s-1` offset. We are flagging it, not claiming a bug.
->
-> Practical relevance: with `n_action_steps=24` the first action of every chunk is executed on the robot, and it is the one token conditioned on stale vision. Worth a controlled test (`causal_attn=False` disables both masks) before attributing any first-action artefact to something else.
+A delta index is an offset in frames from the current moment `n`. **Both lists start at −1.** So the observation window and the action window are *aligned*, and they both begin one frame in the past:
+
+| action index | moment | executable? |
+|---:|---|---|
+| 0 | **n−1** | no — already happened |
+| 1 | **n** (now) | **yes, the first real one** |
+| 47 | n+46 | yes |
+
+`generate_actions` therefore slices:
+
+```python
+start = n_obs_steps - 1        # = 1
+actions = actions[:, start : start + n_action_steps]
+```
+
+Verified across configs — the first executed action is always `n+0`:
+
+```
+ n_obs      obs moments     action moments   start   discarded   first executed
+     1         n+0..n+0          n+0..n+47       0        none            n+0
+     2         n-1..n+0          n-1..n+46       1    idx 0..0            n+0
+     3         n-2..n+0          n-2..n+45       2    idx 0..1            n+0
+     4         n-3..n+0          n-3..n+44       3    idx 0..2            n+0
+```
+
+**Number discarded = number of past observation steps = `n_obs_steps − 1`.** Not a magic constant — "skip however many frames of history you asked for."
+
+**So the mask is right.** Action token 0 predicts the action at moment `n−1`. Observation index 1 is from moment `n`, which is *after* that action. Blocking it refuses to let a token see its own future. And the proof that this is principled rather than accidental — the restricted set and the discarded set are identical at every `n_obs_steps`:
+
+```
+  n_obs_steps=2   blocked memory access: [0]        discarded: [0]        identical
+  n_obs_steps=3   blocked memory access: [0, 1]     discarded: [0, 1]     identical
+  n_obs_steps=4   blocked memory access: [0, 1, 2]  discarded: [0, 1, 2]  identical
+```
+
+Both fall out of the same anchoring, so they track automatically at any `n_obs_steps`. That is not what coincidence looks like.
+
+> ⚠️ **Corrected 2026-08-14.** An earlier version of this section called this a "surprising consequence" and claimed *"action token 0 — the very next action to execute — cannot attend to the most recent observation."* **Wrong twice over.** Action 0 is not the next action to execute (it is discarded), and its restriction is correct, not suspect. The suggested experiment that followed — testing `causal_attn=False` for a first-action artefact — was chasing nothing.
+
+**Why anchor the horizon in the past at all?** Three reasons, and the third is the real one:
+
+1. **One timeline.** Action index `i` and observation index `i` are the same moment, which is what lets the memory rule be a one-liner.
+2. **Free training data.** Grab 48 consecutive actions and the aligned observations; no offsetting anywhere.
+3. **It anchors the trajectory.** Action 0 is a *reconstruction of something the model can check against an observation it was given.* Like drawing a curve through known points, it makes the continuation start in the right place pointing the right way. Action 0 is not waste — it is a **run-up**, costing one of 48 slots to make step 1, the one that reaches the motors, better anchored.
+
+> 🔑 **Consequence for the `causal_attn` ablation:** `causal_attn` is one flag controlling *two* masks (verified: `False` sets both to `None`). But the memory mask only ever restricted action token 0, and action token 0 never reaches the robot — so turning the flag off is *effectively* a clean self-attention-only experiment. See [experiments/2026-08-14](../../experiments/) for the pre-registered run.
 
 ## 8. The three sublayers, with every dimension
 

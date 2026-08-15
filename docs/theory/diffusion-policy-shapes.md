@@ -6,6 +6,10 @@ Every tensor from dataloader to action, traced from the installed `lerobot` 0.6.
 
 Config traced: **LeRobot defaults**, 2 cameras @ 3×480×640, state/action dim 6, batch 8.
 
+> 🚨 **Our trained runs do NOT use these defaults, and the difference is large.** All DP-CNN and DP-T checkpoints in `models/` use **3 cameras**, `resize_shape=(240,320)` and `crop_shape=(216,288)`. So the feature map is **7×9 = 63 cells, not 15×20 = 300** — a 4.8× coarser grid — and the conditioning vector is **198 per obs step, not 134**. The measured chain for our config is in [diffusion-policy-transformer §5a](diffusion-policy-transformer.md#5a-where-the-198-comes-from-the-vision-encoder-measured); the encoder is identical between the two backbones. Read this page for the *mechanism*, that one for *our numbers*.
+>
+> Note also that the resize/crop are **on** in our runs, so the warning below about LeRobot shipping augmentation off does not apply to them: `crop_is_random=True` gives 825 distinct crops per frame.
+
 > Needs the optional extra: `pip install "lerobot[diffusion]==0.6.0"` (pulls `diffusers>=0.27.2,<0.36.0`). Without it `DiffusionPolicy` will not import.
 
 ## The framing that makes the rest make sense
