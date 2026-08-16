@@ -48,7 +48,8 @@ case $SLURM_ARRAY_TASK_ID in
   3) RUN=dpp_bidir_emb256;   STEPS=8000,16000,30000 ;;   # patches bidirectional (dense)
   4) RUN=dpp_causal_emb256;  STEPS=8000,16000,30000 ;;   # patches causal      (dense)
   5) RUN=dpp_avgpool_emb256; STEPS=8000,16000,30000 ;;   # patches bidirectional (pooled)
-  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-5)"; exit 1 ;;
+  6) RUN=dpp_fusion_emb256;  STEPS=8000,16000,30000 ;;   # dense + n_cond_layers=2
+  *) echo "bad array index $SLURM_ARRAY_TASK_ID (expected 0-6)"; exit 1 ;;
 esac
 ARM=${RUN}
 
