@@ -399,6 +399,18 @@ def main() -> None:
     strategy = create_strategy(cfg.strategy)
     strategy.setup(ctx)
 
+    # 🚨 --display-data ONLY sets a flag on the config. Somebody still has to call
+    # rr.init() to open a Rerun session, and lerobot does that inside its OWN entry
+    # points (lerobot-teleoperate, lerobot-record) -- not inside the rollout strategy.
+    # Skip this and the first telemetry log dies with
+    #   ValueError: No application id found. You must call rerun.init before sending
+    #   a blueprint.
+    # after the arm has already started moving, which is the worst possible time.
+    if args.display_data:
+        from lerobot.utils.visualization_utils import init_rerun
+
+        init_rerun(session_name="phi_watch_rollouts")
+
     print(f"\n{BANNER}\n  THE ARM WILL MOVE ON ITS OWN. Keep a hand near the power.\n{BANNER}")
     try:
         for ep in range(1, args.episodes + 1):
@@ -419,6 +431,10 @@ def main() -> None:
         print("\n  interrupted")
     finally:
         strategy.teardown(ctx)
+        if args.display_data:
+            from lerobot.utils.visualization_utils import shutdown_rerun
+
+            shutdown_rerun()
 
     print("\n  Done. Nothing was recorded or scored.")
     print("  For numbers:  python -m phi.utils.eval_rollouts --help\n")
