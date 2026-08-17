@@ -284,6 +284,7 @@ def build_config(args, cameras: dict[str, int | str]):
     #     DecodingError: Couldn't find a choice class for 'diffusion_transformer'
     # Harmless for ACT/DP checkpoints; it only adds a registry entry.
     import phi.policies.dp_transformer  # noqa: F401
+    import phi.policies.dp_patch  # noqa: F401  -- ditto for diffusion_patch
 
     policy_cfg = PreTrainedConfig.from_pretrained(args.model, revision=args.revision)
     policy_cfg.pretrained_path = args.model

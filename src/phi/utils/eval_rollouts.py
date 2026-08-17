@@ -248,7 +248,7 @@ def run_rollout(model: str, cameras: dict[str, int], task: str, duration: int,
     # with the registration import in front of it.
     cmd = [
         sys.executable, "-c",
-        "import sys; import phi.policies.dp_transformer; "
+        "import sys; import phi.policies.dp_transformer; import phi.policies.dp_patch; "
         "from lerobot.scripts.lerobot_rollout import main; sys.exit(main())",
         "--strategy.type=base",
         f"--policy.path={model}",
