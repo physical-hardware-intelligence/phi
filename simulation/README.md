@@ -11,12 +11,19 @@ Curriculum: [Georgia Tech ECE 4560](https://maegantucker.com/ECE4560/) (Prof. Ma
 ./simulation/setup.sh                 # creates ~/venvs/so101-sim, installs mujoco
 source ~/venvs/so101-sim/bin/activate
 python simulation/verify_model.py     # headless: prints joints, ranges, PD gains
-cd simulation && mjpython -m mujoco.viewer --mjcf=model/scene.xml
+cd simulation && python -m mujoco.viewer --mjcf=model/scene.xml
 ```
 
 **Not the `phi` conda env.** `mujoco` is a plain pip wheel (`absl-py, etils, glfw, numpy, pyopengl` — no torch, no CUDA), and `phi` is the only environment that drives the real arm. Keep them apart. The *code* lives here in the repo; only the *environment* lives outside it.
 
-🚨 **macOS: use `mjpython`, not `python`, for anything that opens a viewer** — it needs the main thread.
+🚨 **macOS: the two viewer modes need opposite launchers.** Verified 2026-08-29.
+
+| Mode | Who owns the loop | Call | `python` | `mjpython` |
+|---|---|---|---|---|
+| Managed | the viewer | `python -m mujoco.viewer` | ✅ | ❌ `Caught an unknown exception!` |
+| Passive | **your script** | `viewer.launch_passive()` | ❌ | ✅ |
+
+Use plain `python` to *look* at the model. Use `mjpython` for any script that drives the sim from its own loop and calls `viewer.sync()` — which is what the ECE 4560 assignments need.
 
 🚨 **`mjpython` + a uv venv needs one symlink.** mjpython dlopens the interpreter via `@executable_path/../lib/libpython3.12.dylib`, but a venv's `lib/` holds only site-packages. `setup.sh` links the real dylib into place. Without it you get
 `Library not loaded: @executable_path/../lib/libpython3.12.dylib`.
