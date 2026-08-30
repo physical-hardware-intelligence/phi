@@ -54,19 +54,34 @@ ZERO_POSE = {j: 0.0 for j in ARM_JOINTS} | {GRIPPER: 0.0}
 
 
 # --------------------------------------------------------------------------
-# Unit conversion.  TODO(you): this is the part worth doing by hand.
+# Unit conversion: the simulator speaks radians, we speak degrees (and the
+# gripper is nicer as 0..100 "percent open" than as an angle).
 # --------------------------------------------------------------------------
+_GRIP_LO, _GRIP_HI = LIMITS_DEG[GRIPPER]  # -10.0, 100.0 degrees
+
+
+def _gripper_deg_to_pct(deg: float) -> float:
+    """-10..100 degrees  ->  0..100 percent open."""
+    return (deg - _GRIP_LO) / (_GRIP_HI - _GRIP_LO) * 100.0
+
+
+def _gripper_pct_to_deg(pct: float) -> float:
+    """0..100 percent open  ->  -10..100 degrees."""
+    return _GRIP_LO + (pct / 100.0) * (_GRIP_HI - _GRIP_LO)
+
+
 def convert_to_dictionary(qpos) -> dict[str, float]:
     """qpos (radians, model order) -> {joint: degrees}, gripper -> 0..100."""
     out = {j: float(np.rad2deg(q)) for j, q in zip(JOINTS, qpos)}
-    # TODO: remap out[GRIPPER] from its degree range LIMITS_DEG[GRIPPER] to 0..100
+    out[GRIPPER] = _gripper_deg_to_pct(out[GRIPPER])
     return out
 
 
 def convert_to_list(position: dict[str, float]) -> np.ndarray:
     """Inverse of the above -> np.ndarray of radians in JOINTS order."""
-    # TODO: undo the gripper 0..100 remap, then deg2rad everything
-    raise NotImplementedError
+    degrees = dict(position)
+    degrees[GRIPPER] = _gripper_pct_to_deg(degrees[GRIPPER])
+    return np.deg2rad(np.array([degrees[j] for j in JOINTS], dtype=float))
 
 
 # --------------------------------------------------------------------------
@@ -85,21 +100,50 @@ def send_position_command(d: mujoco.MjData, position: dict[str, float]) -> None:
     d.ctrl[:] = convert_to_list(position)
 
 
+# Redraw every Nth step. The sim runs at 500 Hz; a display runs at 60 Hz, so
+# calling viewer.sync() every step is ~8x more redraws than anyone can see, and
+# sync() is by far the most expensive thing in the loop (measured 2026-08-30:
+# mj_step 0.004 ms, viewer.sync ~2.4 ms).
+SYNC_EVERY = 8
+
+
+def _run(m, d, viewer, n_steps: int, target_fn=None) -> None:
+    """Step the sim n_steps, pacing to real time, redrawing occasionally.
+
+    Real-time pacing means sleeping the time we have LEFT in this step, not a
+    flat timestep. Sleeping a flat 2 ms on top of work that already took 2.4 ms
+    makes the sim run ~2.4x slower than reality.
+    """
+    dt = m.opt.timestep
+    for i in range(n_steps):
+        tick = time.perf_counter()
+        if target_fn is not None:
+            send_position_command(d, target_fn(i))
+        mujoco.mj_step(m, d)
+        if i % SYNC_EVERY == 0:
+            viewer.sync()
+        remaining = dt - (time.perf_counter() - tick)
+        if remaining > 0:
+            time.sleep(remaining)
+    viewer.sync()  # make sure the final state is on screen
+
+
 def move_to_pose(m, d, viewer, desired: dict[str, float], duration: float) -> None:
-    """Linearly interpolate from the current pose to `desired` over `duration`."""
+    """Linearly interpolate from the current pose to `desired` over `duration`.
+
+    We blend in HUMAN units (degrees / percent) and convert once at the end,
+    so the gripper's 0..100 scale is interpolated on the same scale you read.
+    """
     start = convert_to_dictionary(d.qpos[: len(JOINTS)].copy())
     n = max(1, int(duration / m.opt.timestep))
-    for i in range(n):
-        # TODO: alpha from 0 -> 1 across the loop, blend start and desired per joint
-        raise NotImplementedError
-        mujoco.mj_step(m, d)
-        viewer.sync()
-        time.sleep(m.opt.timestep)
+
+    def target(i: int) -> dict[str, float]:
+        alpha = (i + 1) / n  # 0 -> 1 across the move
+        return {j: (1.0 - alpha) * start[j] + alpha * desired[j] for j in JOINTS}
+
+    _run(m, d, viewer, n, target)
 
 
 def hold_position(m, d, viewer, duration: float) -> None:
     """Keep the current ctrl target and let the sim settle."""
-    for _ in range(max(1, int(duration / m.opt.timestep))):
-        mujoco.mj_step(m, d)
-        viewer.sync()
-        time.sleep(m.opt.timestep)
+    _run(m, d, viewer, max(1, int(duration / m.opt.timestep)))
