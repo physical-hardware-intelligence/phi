@@ -1,12 +1,21 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Φ — build the CUDA training env in $HOME on Explorer.
+# Φ — build the CUDA training env for Explorer (lands on /scratch, see below).
 #
-# WHY HOME AND NOT /scratch:
-#   /scratch/gupta.yashv/phi was found EMPTY on 2026-09-05 — scratch is purged.
-#   The env takes ~30 min to build and is the expensive thing to lose, so it
-#   lives in $HOME. Bulk regenerable artifacts (HF video cache) can still go to
-#   scratch; nothing here depends on scratch surviving.
+# WHY /scratch AND NOT $HOME:
+#   Home was the intent (scratch gets purged — /scratch/gupta.yashv/phi was found
+#   EMPTY on 2026-09-05). But home has a per-user quota that neither `quota` nor
+#   `df` will report, and it is already ~77 GB full: microDLM 27G, .conda 26G,
+#   .cache 19G. Build 9989313 died at 7.8 GB with "Disk quota exceeded" — not
+#   OOM, MaxRSS was 12.7 GB of the 32 GB requested. A complete env needs ~11 GB,
+#   so home cannot hold it without deleting the user's work.
+#
+#   Mitigation for the purge risk is to make rebuilding CHEAP rather than to
+#   fight the quota: this script is in git and takes ~10 min. After a purge,
+#   recovery is one `sbatch`. That is a better trade than a 27 GB eviction.
+#
+#   To use home instead, free ~15 GB first (~/.cache at 19 GB is the softest
+#   target) and flip ENV_PREFIX back.
 #
 # WHY A COMPUTE NODE:
 #   The login node kills `conda create`. Always build via sbatch.
@@ -18,7 +27,7 @@
 #   carrying its own .condarc, so the build gets a clean cache. The env itself
 #   is still written to the real home via an explicit --prefix.
 #
-#   Submit:  sbatch configs/hpc/setup_env_home.sbatch
+#   Submit:  sbatch configs/hpc/setup_env.sbatch
 #   Watch:   tail -f ~/phi/logs/setup-<jobid>.out
 # ─────────────────────────────────────────────────────────────────────────────
 #SBATCH --job-name=phi-setup-env
@@ -33,9 +42,9 @@ set -euo pipefail
 
 REAL_HOME=/home/gupta.yashv
 PHI=$REAL_HOME/phi
-ENV_PREFIX=$REAL_HOME/.conda/envs/phi-cuda
+ENV_PREFIX=/scratch/gupta.yashv/envs/phi-cuda   # see the note above
 
-mkdir -p "$PHI/logs"
+mkdir -p "$PHI/logs" "$(dirname "$ENV_PREFIX")"
 
 # --- job-local HOME so conda gets a clean pkgs cache ---------------------------
 BUILD_HOME=$(mktemp -d /tmp/phi-condabuild-XXXXXX)

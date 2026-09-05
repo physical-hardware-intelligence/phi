@@ -60,15 +60,21 @@
 
 set -euo pipefail
 
-# --- everything in HOME: /scratch is purged (found empty 2026-09-05) -----------
+# --- paths --------------------------------------------------------------------
+# Scripts + logs live in $HOME (tiny, survives a scratch purge). The env, the HF
+# video cache and the checkpoints live on /scratch, because $HOME has an
+# unreportable per-user quota that is already ~77 GB full and killed build
+# 9989313 with "Disk quota exceeded". Rebuilding the env is one sbatch, ~10 min.
 REAL_HOME=/home/gupta.yashv
-PHI=$REAL_HOME/phi
-ENV_PREFIX=$REAL_HOME/.conda/envs/phi-cuda
+PHI=$REAL_HOME/phi                                  # scripts + logs (small)
+SCRATCH=/scratch/gupta.yashv
+ENV_PREFIX=$SCRATCH/envs/phi-cuda                   # ~11 GB
+RESULTS=$SCRATCH/phi-results                        # checkpoints
 
-export HF_HOME=$REAL_HOME/.cache/huggingface
-export WANDB_DIR=$PHI/wandb
-export WANDB_CACHE_DIR=$REAL_HOME/.cache/wandb
-mkdir -p "$PHI/logs" "$WANDB_DIR"
+export HF_HOME=$SCRATCH/.cache/huggingface
+export WANDB_DIR=$SCRATCH/wandb
+export WANDB_CACHE_DIR=$SCRATCH/.cache/wandb
+mkdir -p "$PHI/logs" "$WANDB_DIR" "$RESULTS"
 
 # --- the one axis this array varies -------------------------------------------
 CHUNKS=(50 100)
@@ -95,7 +101,7 @@ CAMS="\"observation.images.wrist\": {\"type\": \"VISUAL\", \"shape\": [3, 480, 6
 FEATS="{\"observation.state\": {\"type\": \"STATE\", \"shape\": [6]}, $CAMS}"
 
 RUN=act_${TAG}_chunk${CHUNK}
-OUT=$PHI/results/$RUN
+OUT=$RESULTS/$RUN
 
 module load anaconda3/2024.06 2>/dev/null || true
 export PATH="$ENV_PREFIX/bin:$PATH"
