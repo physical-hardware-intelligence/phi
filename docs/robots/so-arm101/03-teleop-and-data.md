@@ -272,6 +272,6 @@ episode_time_s` is a timer cut.
 
 If you build a dataset in Python (`LeRobotDataset.create(...)` + `save_episode()`), you **must call `dataset.finalize()` before `push_to_hub()`** or the files are corrupt. Editing: `lerobot-edit-dataset --operation.type=delete_episodes|split|merge|info ...`.
 
-**Every dataset gets a card** in [`datasets/`](../../datasets/) — id, task, #episodes, cameras, who collected it, known issues. That's how the next student finds and trusts it.
+**Every dataset gets a card** in [`datasets/`](../../../datasets/) — id, task, #episodes, cameras, who collected it, known issues. That's how the next student finds and trusts it.
 
 ✅ **You are now L1→L2.** Next: [train a policy](../../training/README.md).

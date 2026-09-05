@@ -23,6 +23,16 @@ wandb/
 data/
 *.mp4
 *.parquet
+
+# ...but curated README/docs media IS tracked (see docs/assets/)
+!docs/assets/
+!docs/assets/*.mp4
+!docs/assets/*.gif
+!docs/assets/*.png
+!docs/assets/*.jpg
+# re-assert: macOS sidecars are never tracked, even under docs/assets/
+._*
+**/._*
 .cache/
 
 # Docs build

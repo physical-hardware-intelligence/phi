@@ -2,7 +2,18 @@ site_name: Φ — Physical Hardware Intelligence
 site_description: Open robot-learning pipeline for the Northeastern SV robotics SIG.
 theme:
   name: material
-  features: [navigation.sections, content.code.copy, toc.integrate]
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - search.highlight
+    - content.code.copy
+    - toc.integrate
+  palette:
+    - scheme: default
+      toggle: { icon: material/weather-night, name: Dark mode }
+    - scheme: slate
+      toggle: { icon: material/weather-sunny, name: Light mode }
 
 nav:
   - Home: 00-overview.md
@@ -15,6 +26,7 @@ nav:
   - Training (policy zoo): training/README.md
   - Evaluation: evaluation/README.md
   - Deployment: deployment/README.md
+  - Cluster (Explorer HPC): hpc/explorer.md
   - Theory:
       - Overview & policy family tree: theory/README.md
       - "ACT — why": theory/act-why.md

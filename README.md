@@ -1,93 +1,103 @@
+<div align="center">
+
+<img src="docs/assets/phi-mark.png" alt="Φ" width="96">
+
 # Φ — Physical Hardware Intelligence
 
-**The foundation repository for Northeastern Silicon Valley's robotics SIG (Φ).**
-Everything we build — every robot, dataset, policy, training run, evaluation, and deployment — lives here, curated and documented so any student can get started *without starting from scratch*.
+**An open, reproducible robot-learning pipeline — hardware to trained policy, documented end to end.**
 
-> Built on top of [🤗 LeRobot](https://github.com/huggingface/lerobot) (Apache-2.0). We don't reinvent the engine — we add the **curriculum, curation, evaluation, deployment, and reproducibility** layer on top, and keep it open.
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Built on LeRobot](https://img.shields.io/badge/built%20on-LeRobot%200.6.0-orange.svg)](https://github.com/huggingface/lerobot)
+[![Robot](https://img.shields.io/badge/robot-SO--ARM101-black.svg)](https://github.com/TheRobotStudio/SO-ARM100)
+[![Docs](https://img.shields.io/badge/docs-mkdocs-green.svg)](docs/00-overview.md)
+
+<img src="docs/assets/so101-pick-place.gif" alt="SO-101 pick and place, front camera" width="560">
+
+<sub>Our SO-101, front camera, from <a href="datasets/phi_so101_cubes_cylinder_v1.md"><code>phi_so101_cubes_cylinder_v1</code></a> — real recorded data, not a render.</sub>
+
+</div>
 
 ---
 
-## Why this repo exists
+## What this is
 
-Robot-learning tutorials are scattered, and the good end-to-end ones are paywalled. Φ is the **open** alternative: one systematic, versioned pipeline from **hardware → data → training → evaluation → deployment**, with real docs and a graded on-ramp for new members.
+The robotics SIG at **Northeastern University, Silicon Valley**. Everything we build — robots, datasets, policies, training runs, evaluations — lives in this one repo, versioned and documented so a new member can get to a trained policy **without starting from scratch**.
 
-It is a **multi-robot monorepo**. Our first robot is the **SO-ARM101** arm; future robots (e.g. a quadruped) slot in as new folders under [`docs/robots/`](docs/robots/) — the training/evaluation/deployment infrastructure above them is shared.
+We don't reinvent the engine. [LeRobot](https://github.com/huggingface/lerobot) does the driving; Φ adds the **curriculum, curation, evaluation protocol, and reproducibility** layer on top.
 
-## Repository map
-
-```
-phi/
-├── docs/                     # the curriculum (mkdocs site)
-│   ├── 00-overview.md
-│   ├── robots/so-arm101/     # robot #1: hardware, setup, teleop+data, troubleshooting
-│   ├── training/             # policy zoo (shared): ACT · Diffusion · SmolVLA · pi0
-│   ├── evaluation/           # standardized eval protocol + leaderboard
-│   ├── deployment/           # on-robot · remote · edge inference
-│   └── theory/               # why it works (links to concept notes)
-├── external/lerobot/         # LeRobot source reference (submodule; the env installs it from pinned PyPI)
-├── src/phi/                  # thin library: data · train · eval · deploy · utils
-├── configs/                  # versioned, seeded training/eval configs
-├── tasks/                    # task registry (spec + dataset card + eval rubric)
-├── datasets/  models/        # cards + registry (weights/data on HF Hub)
-├── experiments/              # dated experiment write-ups
-├── env/                      # reproducible environments (mac / cuda)
-└── tests/                    # unit + smoke
-```
-
-## Quickstart (5 minutes, no robot needed)
+## Quickstart
 
 ```bash
-git clone --recurse-submodules <this-repo-url> phi && cd phi
-conda env create -f env/environment.mac.yml   # or env/environment.cuda.yml on a GPU box
-conda activate phi                             # (phi-cuda on a GPU box)
-pip install -e .                               # the phi package (thin CLI over LeRobot)
-make help                                      # see every one-command entrypoint
+git clone <this-repo-url> phi && cd phi
+conda env create -f env/environment.mac.yml   # or environment.cuda.yml on a GPU box
+conda activate phi
+pip install -e .
+make help
 ```
-> LeRobot is installed from a **pinned PyPI release** (`0.6.0`, see [`env/`](env/)) — that is the source of truth for every machine. The `external/lerobot` submodule is only an optional source reference and **does not populate on exFAT-formatted drives** (harmless; the env doesn't use it).
 
-Then read [`docs/00-overview.md`](docs/00-overview.md) and follow the **member ladder** below.
+Then open **[`docs/00-overview.md`](docs/00-overview.md)**.
 
-## From arm to trained policy (the L0 → L2 run)
+## Where do I go?
 
-The end-to-end thread once you have the SO-101 in hand. Each step links to the doc with the exact commands. **Record on the Mac, train on a GPU box.**
+| I want to… | Go here |
+|---|---|
+| **Understand the whole thing** | [Overview](docs/00-overview.md) |
+| **Build or buy the arm** | [Hardware & build](docs/robots/so-arm101/01-hardware.md) |
+| **Get an arm running** | [Setup & bring-up](docs/robots/so-arm101/02-setup.md) |
+| **Record a dataset** | [Teleop & data](docs/robots/so-arm101/03-teleop-and-data.md) |
+| **Train a policy** | [Training — the policy zoo](docs/training/README.md) |
+| **Score a policy honestly** | [Evaluation protocol](docs/evaluation/README.md) |
+| **Run it on the robot / edge** | [Deployment](docs/deployment/README.md) |
+| **Train on the cluster** | [Explorer HPC](docs/hpc/explorer.md) |
+| **Do kinematics in sim** | [Simulation (MuJoCo)](simulation/README.md) |
+| **Know *why* a policy works** | [Theory notes](docs/theory/README.md) |
+| **Something is broken** | [Troubleshooting](docs/robots/so-arm101/troubleshooting.md) |
+| **Contribute** | [CONTRIBUTING](CONTRIBUTING.md) |
 
-1. **Install** the env — the Quickstart above, or [`02-setup`](docs/robots/so-arm101/02-setup.md).
-2. **Find USB ports** (`lerobot-find-port`, once per arm) → [`02-setup`](docs/robots/so-arm101/02-setup.md).
-3. **Set motor IDs**, one servo at a time → [`02-setup`](docs/robots/so-arm101/02-setup.md).
-4. **Calibrate** follower + leader — reuse the same `--id` everywhere, **commit the file** → [`02-setup`](docs/robots/so-arm101/02-setup.md).
-5. **Teleop check** — move the leader, the follower mirrors → **you're L1** → [`02-setup`](docs/robots/so-arm101/02-setup.md).
-6. **Add cameras** — wrist + one fixed scene cam → [`02-setup`](docs/robots/so-arm101/02-setup.md).
-7. **Record ≥50 demos**, varying object position + lighting → [`03-teleop-and-data`](docs/robots/so-arm101/03-teleop-and-data.md).
-8. **QA + replay** the dataset — no dropped frames, no camera swap → [`03-teleop-and-data`](docs/robots/so-arm101/03-teleop-and-data.md).
-9. **Train ACT** on the GPU box (`--policy.type=act`) → **you're L2** → [`training`](docs/training/README.md).
-10. **Roll out + score** on the robot (`lerobot-rollout`) → [`evaluation`](docs/evaluation/README.md).
-11. **Log it** — commit the config + seed, write the [`experiment`](experiments/), add a [`model card`](models/).
-
-Stuck at any step → [`troubleshooting`](docs/robots/so-arm101/troubleshooting.md).
-
-## The member ladder (how you level up)
+## The member ladder
 
 | Level | You can… | Start here |
 |---|---|---|
-| **L0 Onboard** | run a pretrained policy in replay | [overview](docs/00-overview.md) |
-| **L1 Operator** | calibrate + teleoperate + record a dataset | [robots/so-arm101/02-setup](docs/robots/so-arm101/02-setup.md) |
-| **L2 Trainer** | train ACT on your data + evaluate it | [training](docs/training/README.md), [evaluation](docs/evaluation/README.md) |
-| **L3 Contributor** | add a task or a config; close a good-first-issue | [tasks/TEMPLATE](tasks/TEMPLATE.md) |
-| **L4 Researcher** | run a new policy / edge / RL experiment + write it up | [experiments/TEMPLATE](experiments/TEMPLATE.md) |
-| **L5 Maintainer** | own a module, review PRs | [CONTRIBUTING](CONTRIBUTING.md) |
+| **L0** Onboard | replay a recorded episode | [overview](docs/00-overview.md) |
+| **L1** Operator | calibrate, teleoperate, record a dataset | [02-setup](docs/robots/so-arm101/02-setup.md) |
+| **L2** Trainer | train a policy on your data and score it | [training](docs/training/README.md) · [evaluation](docs/evaluation/README.md) |
+| **L3** Contributor | add a task or config, close a good-first-issue | [tasks/TEMPLATE](tasks/TEMPLATE.md) |
+| **L4** Researcher | run a new experiment and write it up | [experiments/TEMPLATE](experiments/TEMPLATE.md) |
+| **L5** Maintainer | own a module, review PRs | [CONTRIBUTING](CONTRIBUTING.md) |
 
-## The pipeline
+## What's in here
 
 ```
-Hardware → Environment → Calibration/PID → Teleop → Data → Dataset QA
-   → Training (policy zoo) → Evaluation (standard protocol) → Deployment (on-robot/remote/edge) → iterate
-        └──────────── reproducibility + docs + tests wrap every stage ───────────┘
+docs/          the curriculum (mkdocs site)
+simulation/    MuJoCo + SO-101 kinematics — runs on a Mac
+src/phi/       thin tooling over LeRobot
+configs/       pinned, seeded run configs
+datasets/      dataset cards — data lives on the HF Hub
+models/        model cards, one per checkpoint
+experiments/   dated write-ups of every run
+tasks/         task specs + eval rubrics
+env/ tests/    environments · unit + smoke tests
 ```
 
 ## Status
 
-🌿 **Phase 0 → Phase 1.** Docs, environments, and structure are in place; setup/training/eval docs carry the real LeRobot commands. The **Mac cockpit env is verified working** (2026-07-27, Apple M4 / macOS 26: Python 3.12 · LeRobot 0.6.0 · torch 2.11 MPS · Feetech SDK · all `lerobot-*` CLIs resolve). The **arm has arrived**, so **Phase 1** (first reproducible SO-101 ACT run) is beginning — next is `lerobot-find-port` → calibrate → teleop once the arm is connected to the cockpit.
+**Phase 1 — training and evaluating on our own arm.**
+
+| | |
+|---|---|
+| Datasets recorded | **3** public on the HF Hub, 3-camera (wrist · front · top) |
+| Policies trained | **ACT**, **Diffusion Policy** (CNN + Transformer), patch-encoder variants |
+| Model cards | **6** |
+| Experiment write-ups | **9** |
+| Rollouts scored on the real arm | **62**, against a written rubric |
+| Simulation | MuJoCo FK/IK on the SO-101, verified against the model |
+
+Cockpit is a Mac (record + teleop); training runs on a CUDA box or the Explorer cluster.
+
+> **We publish negative results.** Several experiments here record things that did not work, and one carries a correction notice over its original conclusion. That is deliberate — see [`experiments/`](experiments/).
 
 ## License & credits
 
-Apache-2.0 (see [LICENSE](LICENSE)). Built on [LeRobot](https://github.com/huggingface/lerobot) and the [SO-ARM100/101](https://github.com/TheRobotStudio/SO-ARM100) hardware project. Φ is a Student Interest Group at Northeastern University, Silicon Valley — not affiliated with or branded by the university.
+Apache-2.0 — see [LICENSE](LICENSE). Built on [LeRobot](https://github.com/huggingface/lerobot) and the [SO-ARM100/101](https://github.com/TheRobotStudio/SO-ARM100) hardware project.
+
+Φ is a Student Interest Group at Northeastern University, Silicon Valley. Not affiliated with or branded by the university.

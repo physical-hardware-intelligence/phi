@@ -10,7 +10,7 @@ Hypothesis: yes, and the gap should be **largest on spatial / contact-precise ta
 
 Why it fits Φ specifically:
 - Reported: **+40% vs pooled features**; beats fine-tuned OpenVLA-OFT (7.6B) by **18% using ~0.7% of its params**; **converges in 6.5 GPU-hours on one L40S**; ~11 ms inference.
-- That single-GPU / tiny-model regime is exactly our constraint (OMEN RTX 2060 — see [EdgeInfer](../../../wiki), Explorer HPC, Colab). This is our best shot at a "punches-above-its-compute" policy.
+- That single-GPU / tiny-model regime is exactly our constraint (OMEN RTX 2060 — see EdgeInfer, Explorer HPC, Colab). This is our best shot at a "punches-above-its-compute" policy.
 - Frozen backbone = drop-in; rides vision-model progress for free. Pairs with the [SO-101 setup playbook](../docs/robots/so-arm101/troubleshooting.md).
 
 ## Setup

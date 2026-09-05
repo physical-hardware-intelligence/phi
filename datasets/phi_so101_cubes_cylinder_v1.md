@@ -122,6 +122,6 @@ At the full 66,873 frames, 100k steps at batch 8 is **≈12 epochs** — a far h
 
 ## Related
 
-- [`phi_so101_redcube_in_box_v1`](phi_so101_redcube_in_box_v1.md) — the 20-episode positive control that preceded this
+- `phi_so101_redcube_in_box_v1` — the 20-episode positive control that preceded this _(no card written)_
 - [`phi_so101_8bin_v1`](phi_so101_8bin_v1.md) — the 8-bin dataset with transposed camera keys
 - [03-teleop-and-data](../docs/robots/so-arm101/03-teleop-and-data.md) — recording, resume and the camera-index traps
