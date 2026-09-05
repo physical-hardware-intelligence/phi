@@ -92,6 +92,13 @@ def loss_by_horizon(checkpoint: Path, horizon: int, batch_size: int, device: str
     cnt = torch.zeros(horizon, dtype=torch.float64)
 
     for batch in loader:
+        # The dataset yields images as uint8 [0,255]. NormalizerProcessorStep adopts
+        # the incoming tensor's dtype (normalize_processor.py:345), so a uint8 image
+        # makes it cast float stats to uint8 and raise
+        # "value cannot be converted to type uint8 without overflow".
+        # The ACT processor pipeline has no float-conversion step, so do it here.
+        batch = {k: (v.float() / 255.0 if (torch.is_tensor(v) and v.dtype == torch.uint8) else v)
+                 for k, v in batch.items()}
         batch = pre(batch)
         pred = policy.predict_action_chunk(batch)[:, :horizon]     # [B, H, D]
         gt = batch[ACTION][:, :horizon]                            # [B, H, D]
