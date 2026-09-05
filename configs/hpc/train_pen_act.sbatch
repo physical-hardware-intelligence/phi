@@ -111,6 +111,15 @@ FEATS="{\"observation.state\": {\"type\": \"STATE\", \"shape\": [6]}, $CAMS}"
 RUN=act_${TAG}_chunk${CHUNK}
 OUT=$RESULTS/$RUN
 
+# A cancelled or crashed attempt leaves an empty $OUT behind, and lerobot-train
+# then refuses to start ("Output directory ... already exists and resume is
+# False"). Clear it ONLY when it holds no checkpoint, so a real run is never
+# destroyed. Cost us job 9989698_1.
+if [ -d "$OUT" ] && [ -z "$(find "$OUT" -name '*.safetensors' -print -quit 2>/dev/null)" ]; then
+  echo "note: removing empty leftover $OUT (no checkpoints in it)"
+  rm -rf "$OUT"
+fi
+
 module load anaconda3/2024.06 2>/dev/null || true
 export PATH="$ENV_PREFIX/bin:$PATH"
 
