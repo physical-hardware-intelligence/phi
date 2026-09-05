@@ -71,6 +71,14 @@ SCRATCH=/scratch/gupta.yashv
 ENV_PREFIX=$SCRATCH/envs/phi-cuda                   # ~11 GB
 RESULTS=$SCRATCH/phi-results                        # checkpoints
 
+# 🚨 PYTHONNOUSERSITE: ~/.local/lib/python3.12/site-packages holds a 1.6 GB
+#    torch (cu121) that SHADOWS the env's. Without this, `import torch` in the
+#    env resolves to the user-site copy: on most nodes it dies with
+#    "ImportError: libnvJitLink.so.12", and on the rest it silently trains with
+#    the WRONG, unpinned torch — job 9989528_1 reported "built for 12.1" instead
+#    of our 2.11.0+cu126. Adding $ENV/bin to PATH does not prevent this; only
+#    disabling user-site does.
+export PYTHONNOUSERSITE=1
 export HF_HOME=$SCRATCH/.cache/huggingface
 export WANDB_DIR=$SCRATCH/wandb
 export WANDB_CACHE_DIR=$SCRATCH/.cache/wandb
