@@ -4,8 +4,77 @@ Training a policy is only half the job. Deployment is about **running the policy
 
 > Reference: [inference](https://huggingface.co/docs/lerobot/en/inference) · [async inference](https://huggingface.co/docs/lerobot/en/async) · [Real-Time Chunking](https://huggingface.co/docs/lerobot/en/rtc)
 
-## 1. On-robot (simplest)
-Run `lerobot-rollout` directly on the machine the arm is plugged into (the Mac cockpit for small policies like ACT; device `mps`). Good enough for ACT/Diffusion-scale models.
+## 1. On-robot — run a policy from your terminal
+
+On the machine the arm is plugged into (the Mac cockpit, device `mps`). Fine for ACT and Diffusion Policy.
+
+```bash
+source configs/ports.local.sh        # exports $FOLLOWER_PORT / $FOLLOWER_ID
+
+lerobot-rollout \
+  --policy.path=BrutalCaesar/act_so101_pen_chunk50_3cam \
+  --policy.device=mps \
+  --robot.type=so101_follower --robot.port=$FOLLOWER_PORT --robot.id=$FOLLOWER_ID \
+  --robot.cameras="{ \
+    wrist: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30, fourcc: MJPG}, \
+    front: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30, fourcc: MJPG}, \
+    top:   {type: opencv, index_or_path: 2, width: 640, height: 480, fps: 30, fourcc: MJPG} }" \
+  --task="pick up the pen and place it in the container" \
+  --strategy.type=base \
+  --duration=60
+```
+
+> **Never** paste a `/dev/tty.usbmodem…` literal from these docs. Ports differ per laptop and change per USB port. Always `source configs/ports.local.sh`. ([why](../robots/so-arm101/02-setup.md#3-calibrate))
+
+### Choosing the model — `--policy.path`
+
+One flag, two forms:
+
+| | |
+|---|---|
+| **Hub** | `BrutalCaesar/act_so101_pen_chunk50_3cam` — downloaded and cached |
+| **Local** | `checkpoints/<run>/checkpoints/<step>/pretrained_model` |
+
+Training saves every `save_freq` steps, so a local run holds several. **The last checkpoint is not automatically the best.** We have a case where held-out loss rose 4× and the policy still matched a 100k-step model on the arm. Choose by rollout, not by step number.
+
+### There is no dataset to choose
+
+This is the part that confuses people. **At inference you do not load a dataset.** The model already carries everything it took from one:
+
+| what it carries | where it lives |
+|---|---|
+| normalization statistics | `policy_preprocessor_*.safetensors` |
+| which camera keys it expects | `config.json` |
+| the calibration frame its joint angles mean something in | nowhere — it is implicit, which is why it bites |
+
+`--dataset.repo_id` at rollout is an **output**: where `--strategy.type=sentry` writes the eval episodes it records. Omit it for a plain run.
+
+So the real question is not *which dataset* but **does what I am feeding it match what it was trained on?** Three things must match, and all three fail silently, with no error and no warning:
+
+| must match | how to check before the arm energises |
+|---|---|
+| camera key → physical camera | `--display_data=true` and look at each window |
+| calibration frame | `python -m phi.utils.compare_calibration` ([why](../evaluation/README.md)) |
+| control rate | `--fps` (default 30) against the dataset's fps |
+
+The camera one is not hypothetical: `saimaligi/pen_pick_and_place_20260817_162529` has its three keys rotated by one, so a policy trained on it needs remapping at deployment.
+
+### The one knob worth tuning
+
+`--policy.n_action_steps` — how much of each predicted chunk to execute before re-planning. **Inference-time only, no retraining** (it does not appear in `compute_loss`). Lower is more reactive and costs more compute; the chunk tail is always the least accurate part. Start at `Tp/2`. It has a hard deadline to meet — see [§4](#-4-the-control-rate-budget--measured-and-it-is-tight).
+
+### Strategies
+
+`--strategy.type` = `base` (autonomous, no recording) · `sentry` (records + uploads eval episodes) · `dagger` (human takes over) · `episodic` · `highlight`. For slow VLAs (π₀, SmolVLA) add `--inference.type=rtc`.
+
+### Just want to watch it move, safely?
+
+```bash
+python -m phi.utils.watch_rollouts --model <hub-id-or-path> --port $FOLLOWER_PORT \
+  --cameras wrist=0,top=1,front=2 --n-action-steps 15
+```
+
+Resets the scene between episodes, makes you eyeball the camera mapping first, and rate-limits each joint to 15°/tick so a wrong first action creeps instead of slams. **Produces no numbers by design** — for scored rollouts use `phi.utils.eval_rollouts` and the [evaluation protocol](../evaluation/README.md).
 
 ## 2. Remote inference (big models, small robot computer)
 Split it: a lightweight **client** on the robot machine streams observations to an **inference server** on a GPU box that runs the policy and streams actions back. Use **async inference** so the control loop isn't blocked, and **RTC** (`--inference.type=rtc`) so slow VLAs (pi0/SmolVLA) stay smooth. See the async + RTC docs above.

@@ -47,7 +47,7 @@ Then open **[`docs/00-overview.md`](docs/00-overview.md)**.
 | **Record a dataset** | [Teleop & data](docs/robots/so-arm101/03-teleop-and-data.md) |
 | **Train a policy** | [Training — the policy zoo](docs/training/README.md) |
 | **Score a policy honestly** | [Evaluation protocol](docs/evaluation/README.md) |
-| **Run it on the robot / edge** | [Deployment](docs/deployment/README.md) |
+| **Run a trained policy on the arm** | [Deployment — inference](docs/deployment/README.md#1-on-robot--run-a-policy-from-your-terminal) |
 | **Train on the cluster** | [Explorer HPC](docs/hpc/explorer.md) |
 | **Do kinematics in sim** | [Simulation (MuJoCo)](simulation/README.md) |
 | **Know *why* a policy works** | [Theory notes](docs/theory/README.md) |

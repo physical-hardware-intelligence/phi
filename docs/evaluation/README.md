@@ -5,17 +5,16 @@
 > Reference: [lerobot-rollout / inference](https://huggingface.co/docs/lerobot/en/inference)
 
 ## Run a policy on the arm
+
+The `lerobot-rollout` command, how to point it at a model, and why there is no dataset to choose: **[Deployment §1](../deployment/README.md#1-on-robot--run-a-policy-from-your-terminal)**. This page is about turning a rollout into a *number*.
+
+To record and upload the eval episodes as you go, add:
+
 ```bash
-lerobot-rollout \
-  --strategy.type=base \
-  --policy.path=${HF_USER}/act-phi-cube-v1 \
-  --robot.type=so101_follower --robot.port=/dev/tty.usbmodem58760431541 --robot.id=phi_follower \
-  --robot.cameras="{ front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30} }" \
-  --task="Grab the black cube" \
-  --duration=60
+  --strategy.type=sentry \
+  --dataset.repo_id=${HF_USER}/<task>_eval_<date> \
+  --dataset.single_task="<the task string>"
 ```
-`--strategy.type`: `base` (autonomous) · `sentry` (record + auto-upload eval episodes) · `dagger` (human-in-the-loop) · `episodic`. For slow VLAs (pi0/SmolVLA) add `--inference.type=rtc` (Real-Time Chunking).
-⚠️ Camera config **must match** what was used at recording time.
 
 ### 🚨 Precondition: use the repo's calibration, not your own
 
