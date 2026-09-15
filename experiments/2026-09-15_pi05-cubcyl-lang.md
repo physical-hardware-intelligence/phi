@@ -110,9 +110,66 @@ chain scatters across four directories.
 | 3 | it/s × 30,000 | sizes the chain; 3-4 jobs expected, extrapolated not measured |
 | 4 | peak VRAM against 141 GB | if near, add `--policy.gradient_checkpointing=true` or halve batch |
 
+## What the smoke job found (2026-09-15)
+
+A 50-minute job on the `sharing` partition, run *while* the real job sat 80-deep in the
+`gpu` queue with a 12-hour estimated start. It found two blockers in two submissions, both of
+which would have killed the H200 job a minute after it finally started.
+
+**1. `--policy.push_to_hub=false` is mandatory** (job 10368256).
+
+`PI05Config` defaults `push_to_hub=True` with `repo_id=None`, and `cfg.validate()` raises
+before training begins:
+
+```
+File ".../lerobot/scripts/lerobot_train.py", line 203, in train
+    cfg.validate()
+ValueError: 'repo_id' argument missing. Please specify it to push the model to the hub.
+```
+
+`train_pen_act.sbatch` already carried this flag; the π₀.₅ script did not. Fixed.
+
+**2. 🔴 `google/paligemma-3b-pt-224` is a gated repo** (job 10368295). **UNRESOLVED.**
+
+```
+huggingface_hub.errors.GatedRepoError: 401 Client Error.
+Cannot access gated repo for url .../google/paligemma-3b-pt-224/resolve/main/config.json
+```
+
+π₀.₅ pulls its tokenizer from Google's repo at runtime, *separately* from the
+`lerobot/pi05_base` weights. Verified: `gated=manual` on the Google repo, `gated=False` on
+`pi05_base`, and `pi05_base` ships **no tokenizer files** — only `config.json` and the two
+processor JSONs. Explorer has no HF token.
+
+Clearing it needs two human actions, in this order:
+
+1. Accept the licence at <https://huggingface.co/google/paligemma-3b-pt-224> while signed in
+   as the account whose token will be used.
+2. `hf auth login` on Explorer, so `$HF_HOME=/scratch/gupta.yashv/.cache/huggingface` holds a
+   token with that access.
+
+Do not route around the gate with a community mirror. The gate exists because Google requires
+accepting their terms, and a mirror does not change that.
+
+**3. The rename_map is correct.** Confirmed from the resolved config dump before the tokenizer
+failure, so check 1 from the table above is **passed**:
+
+```
+'rename_map': {'observation.images.front': 'observation.images.base_0_rgb',
+               'observation.images.top':   'observation.images.right_wrist_0_rgb',
+               'observation.images.wrist': 'observation.images.left_wrist_0_rgb'}
+'input_features': {'observation.images.base_0_rgb', 'observation.images.left_wrist_0_rgb',
+                   'observation.images.right_wrist_0_rgb', 'observation.state' [32]}
+```
+
+Checks 2, 3 and 4 (holdout count, it/s, peak VRAM) are still unmeasured — the job never
+reached a training step.
+
 ## Results
 
-_To be filled._
+_Blocked on the PaliGemma licence gate. Main job `10368294` remains queued on the `gpu`
+partition, estimated start 2026-09-16 03:29. It is deliberately left queued: if the gate is
+cleared before then it runs, and if not it fails in about a minute and releases the node._
 
 | step | eval loss | notes |
 |---|---|---|

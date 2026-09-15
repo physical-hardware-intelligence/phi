@@ -29,6 +29,12 @@
 #    else and the cosine schedule no longer lands at the end of training. Same
 #    trap as docs/theory/diffusion-policy-transformer.md §15.
 #
+# 🚨 --policy.push_to_hub=false IS NOT OPTIONAL.
+#    PI05Config defaults push_to_hub=True with repo_id=None, and cfg.validate()
+#    raises "'repo_id' argument missing" at lerobot_train.py:203 — BEFORE any
+#    training starts. Caught by the smoke job 10368256 on 2026-09-15, which is
+#    the only reason it did not waste a 12-hour H200 queue wait.
+#
 # 🚨 eval_split HOLDS OUT PER TASK STRING, and this dataset has 6 of them.
 #    Verified for 1 task (pen, see train_pen_act.sbatch). NOT verified for 6.
 #    0.09 is intended to hold out 2 per task = 12 total. CHECK THE LOGGED COUNT
@@ -100,6 +106,7 @@ if [ -L "$OUT/checkpoints/last" ]; then
   srun lerobot-train \
     --config_path="$OUT/checkpoints/last/pretrained_model/train_config.json" \
     --resume=true \
+    --policy.push_to_hub=false \
     --output_dir="$OUT"
 else
   echo "fresh start from lerobot/pi05_base"
@@ -107,6 +114,7 @@ else
     --policy.path=lerobot/pi05_base \
     --policy.device=cuda \
     --policy.dtype=bfloat16 \
+    --policy.push_to_hub=false \
     --policy.chunk_size=50 \
     --policy.n_action_steps=50 \
     --rename_map="$RENAME" \
