@@ -36,6 +36,7 @@ nav:
       - "Diffusion Policy — Transformer backbone": theory/diffusion-policy-transformer.md
       - "SmolVLA": theory/smolvla.md
       - "Image preprocessing (all policies)": theory/image-preprocessing.md
+      - "Control loop & compliance (all policies)": theory/control-loop.md
 
 markdown_extensions:
   - admonition
