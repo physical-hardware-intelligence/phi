@@ -142,7 +142,7 @@ Two timing facts, neither about the sensor:
 - **Sample period.** Contact resolves in 1–10 ms; we sample every 33 ms. Load appears in an observation *after* the damage.
 - **The chunk, which is worse.** The policy commits 1.6 s and stops looking. Even if it saw the spike, it is not re-planning.
 
-**So force-in-observation is not a route to contact reactivity on this stack.** Its real value is **offline**, where rate does not matter: labelling which grasps slipped, a continuous quality metric instead of binary success, and the ground-truth current-versus-motion data that [ServoGap] needs. Plus one narrow runtime case that does survive the chunk: **slow-varying context** ("am I carrying something heavy") changes over seconds, not milliseconds.
+**So force-in-observation is not a route to contact reactivity on this stack.** Its real value is **offline**, where rate does not matter: labelling which grasps slipped, a continuous quality metric instead of binary success, and the ground-truth current-versus-motion data that **ServoGap** needs (internal project: fitting a MuJoCo actuator model to our own STS3215). Plus one narrow runtime case that does survive the chunk: **slow-varying context** ("am I carrying something heavy") changes over seconds, not milliseconds.
 
 ---
 
@@ -172,7 +172,7 @@ The phrase gets used loosely and the three meanings have completely different fe
 
 | | What it is | Where it runs | Ours? |
 |---|---|---|---|
-| **(a) Learned actuator model** | a network mapping command + state → what the motor *actually did*, replacing the analytical motor model | **in simulation** | ✅ this is [ServoGap] |
+| **(a) Learned actuator model** | a network mapping command + state → what the motor *actually did*, replacing the analytical motor model | **in simulation** | ✅ this is **ServoGap** (internal project, no public write-up yet) |
 | **(b) Learned controller** | a network emitting actuator commands at kHz, replacing a hand-written PD | **on the robot** | 🔴 see below |
 | **(c) System identification** | measure what `P = 16` actually does | offline analysis | ✅ cheap, undone |
 
@@ -214,7 +214,7 @@ Per this section's convention elsewhere in `theory/`:
 2. **Log `Present_Load` + `Present_Current`.** Measure the added loop cost first (§6). Bank it as offline labelling data and ServoGap ground truth, **not** as reactivity.
 3. **Shrink the open-loop window.** The real unlock, and it is software. Smaller chunks, or real-time chunking. Going from 0.6 Hz to ~30 Hz effective replanning is what would give force-in-observation somewhere to land.
 4. **Per-episode stiffness conditioning.** Collect episodes at several fixed P values, record P as a dataset field, train a policy conditioned on it. SoftMimic's idea within the EPROM constraint.
-5. **[ServoGap]** — the learned actuator model. In sim there is no EPROM, so per-step stiffness is free. Train there, deploy at the nearest achievable fixed gain.
+5. **ServoGap** — the learned actuator model. In sim there is no EPROM, so per-step stiffness is free. Train there, deploy at the nearest achievable fixed gain.
 6. **PWM + microcontroller** (§8). Speculative, highest ceiling.
 
 ---
@@ -238,5 +238,4 @@ Per this section's convention elsewhere in `theory/`:
 - Our own argument, written up: [A VLA is not the policy](https://physical-hardware-intelligence.github.io/blog/a-vla-is-not-the-policy.html)
 - Source of truth for every measured number here: `lerobot/motors/feetech/tables.py`, `lerobot/motors/feetech/feetech.py`, `lerobot/robots/so_follower/so_follower.py`
 
-[ServoGap]: https://physical-hardware-intelligence.github.io/
 [SockBot]: https://makerworld.com/en/models/2758393-lerobot-on-tracks
