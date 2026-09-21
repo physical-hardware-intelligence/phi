@@ -17,6 +17,7 @@ theme:
 
 nav:
   - Home: 00-overview.md
+  - Set up your laptop: 00-setup-your-laptop.md
   - Robots:
       - SO-ARM101:
           - Hardware & build: robots/so-arm101/01-hardware.md

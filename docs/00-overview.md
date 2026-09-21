@@ -3,7 +3,7 @@
 Φ turns "I want to make a robot learn something" into a **repeatable pipeline** anyone in the club can follow.
 
 ## The engine: LeRobot
-We build on [🤗 LeRobot](https://huggingface.co/docs/lerobot/en/index) — the open framework that handles motors, cameras, datasets, training, and inference. We pin it as a git submodule at [`external/lerobot`](../external/) and add our curation, evaluation, deployment, and docs on top. **When in doubt, the LeRobot docs are the source of truth**; this site is the *curated path* through them for the SO-101.
+We build on [🤗 LeRobot](https://huggingface.co/docs/lerobot/en/index) — the open framework that handles motors, cameras, datasets, training, and inference. We pin it in `env/environment.*.yml` (LeRobot 0.6.0) and add our curation, evaluation, deployment, and docs on top. **When in doubt, the LeRobot docs are the source of truth**; this site is the *curated path* through them for the SO-101.
 
 Key LeRobot references (bookmark these):
 - Docs home: https://huggingface.co/docs/lerobot/en/index

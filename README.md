@@ -28,19 +28,25 @@ We don't reinvent the engine. [LeRobot](https://github.com/huggingface/lerobot) 
 ## Quickstart
 
 ```bash
-git clone <this-repo-url> phi && cd phi
+git clone https://github.com/physical-hardware-intelligence/phi.git && cd phi
 conda env create -f env/environment.mac.yml   # or environment.cuda.yml on a GPU box
 conda activate phi
 pip install -e .
+cp configs/ports.local.sh.example configs/ports.local.sh   # then put your ports in it
 make help
 ```
 
-Then open **[`docs/00-overview.md`](docs/00-overview.md)**.
+**New here? Read [`docs/00-setup-your-laptop.md`](docs/00-setup-your-laptop.md) instead** — it
+covers prerequisites, what each package is for, how to verify the install actually worked, and
+the failure modes that are silent if you skip the check.
+
+For the shape of the whole project: **[`docs/00-overview.md`](docs/00-overview.md)**.
 
 ## Where do I go?
 
 | I want to… | Go here |
 |---|---|
+| **Set up your laptop** | [Setup your laptop](docs/00-setup-your-laptop.md) |
 | **Understand the whole thing** | [Overview](docs/00-overview.md) |
 | **Build or buy the arm** | [Hardware & build](docs/robots/so-arm101/01-hardware.md) |
 | **Get an arm running** | [Setup & bring-up](docs/robots/so-arm101/02-setup.md) |

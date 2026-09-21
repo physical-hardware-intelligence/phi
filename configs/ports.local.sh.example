@@ -1,0 +1,29 @@
+#!/usr/bin/env zsh
+# ────────────────────────────────────────────────────────────────────────────
+# COPY THIS FILE, do not edit it in place:
+#     cp configs/ports.local.sh.example configs/ports.local.sh
+#
+# The copy is git-ignored, because serial ports differ per laptop. Nearly every
+# command in the docs opens with `source configs/ports.local.sh`, so without it
+# you get `Could not connect on port ''` — zsh expands an unset variable to
+# nothing without complaining.
+#
+# Get your two ports by running `lerobot-find-port` TWICE, once per arm,
+# unplugging when it prompts. Do NOT write `--port $(lerobot-find-port)`: the
+# tool is interactive, command substitution swallows its prompt, and the
+# terminal looks hung forever.
+#
+# macOS renames these on a new USB port or a reboot. If a command says the port
+# is missing, re-run lerobot-find-port and update the copy.
+# ────────────────────────────────────────────────────────────────────────────
+
+export LEADER_PORT="/dev/tty.usbmodemREPLACE_ME"     # the arm you move by hand
+export FOLLOWER_PORT="/dev/tty.usbmodemREPLACE_ME"   # the arm that mirrors it
+export ROBOT_PORT="$FOLLOWER_PORT"                   # Makefile alias
+
+# Calibration ids. These name your calibration files, and every doc, checkpoint
+# and rollout command in this repo assumes exactly these two strings. Keep them.
+export FOLLOWER_ID="phi_follower"
+export LEADER_ID="phi_leader"
+
+echo "Φ ports loaded → leader=$LEADER_PORT  follower=$FOLLOWER_PORT"

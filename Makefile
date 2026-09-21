@@ -1,12 +1,9 @@
 # Φ — one-command entrypoints. Run `make help` to see everything.
 # These are thin wrappers; the real work is LeRobot CLI commands documented in docs/.
-.PHONY: help setup lint test docs submodule
+.PHONY: help setup lint test docs
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n",$$1,$$2}'
-
-submodule:  ## Pull the pinned LeRobot engine
-	git submodule update --init --recursive
 
 setup:  ## Create the conda env (override: make setup ENV=cuda)
 	conda env create -f env/environment.$(or $(ENV),mac).yml
