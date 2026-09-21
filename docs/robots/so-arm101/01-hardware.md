@@ -16,6 +16,31 @@ Canonical hardware source: **https://github.com/TheRobotStudio/SO-ARM100** (the 
 > 🚨 **The two power adapters are NOT interchangeable — one is 5 V, one is 12 V, and they look alike.** Swapping them does not merely underperform: the 5 V arm on 12 V trips over-voltage protection (a servo latches `Input voltage error!` and reads as a *missing* motor), and the 12 V arm on 5 V never enumerates at all. **Label each adapter with its arm the first time you unplug them.** Symptom-to-cause table: [troubleshooting](troubleshooting.md#-missing-motors-or-input-voltage-error--check-you-didnt-swap-the-two-power-adapters).
 - Repo BOM estimate: two-arm ≈ **$230**, single follower ≈ **$122** (region/time-dependent — verify before quoting).
 
+
+### Why the leader gets 5 V and the follower 12 V
+
+Both arms are the same design. The only thing being chosen is how much torque each one can
+produce, and the two arms want opposite answers.
+
+The **follower** holds its own mass plus the payload against gravity, continuously, and has to
+accelerate it. Holding torque scales with supply voltage: the same STS3215 gives roughly
+**16.5 kg·cm at 7.4 V and 30 kg·cm at 12 V**. It also runs a uniform 1/345 reduction. High voltage,
+high gearing, maximum torque.
+
+The **leader** is backdriven by a human hand. It only has to report joint angles, so torque is
+a *liability* — every newton-metre it can produce is one you have to overcome to move it. So it gets
+lighter gearing (1/191 and 1/147 on most joints) and lower voltage, both pulling in the same
+direction: an arm that offers almost no resistance.
+
+Two consequences worth knowing:
+
+- **Current, not just voltage.** The 12 V supply must be ≥5 A. Six servos accelerating
+  together draw far more than their idle current, and a 2 A brick sags under a fast move — which
+  looks like servos randomly dropping off the bus, not like a power problem.
+- **The failure is asymmetric.** 5 V arm on 12 V trips over-voltage protection and the servo
+  latches `Input voltage error!`, reading as a *missing* motor. 12 V arm on 5 V simply never
+  enumerates. Neither says "wrong adapter".
+
 ## Cameras (needed for vision policies)
 
 At least one camera; two is better; we run three. A **wrist** camera on the gripper nails contact and grasp outcomes, while a camera looking at the scene nails where the objects are — we use two of those, one **front** and one **top**. Any UVC webcam works via OpenCV; Intel RealSense (D405/D435) is supported but **not required** (our policies are RGB-only). Wiring and config: [02-setup](02-setup.md).
@@ -101,6 +126,34 @@ And macOS does **not** expose UVC controls system-wide — Logitech's own softwa
 A **top-down component is what you are really buying** in a scene camera: it reveals gripper position relative to object centre, which a purely head-on view cannot. That is why our wide camera goes overhead (`top`) and the narrower one sits head-on (`front`) — between them you get object layout and approach depth, with less occlusion during the grasp than a side view gives.
 
 **Tape or mark both mounts** so they are identical between data collection and evaluation. A camera that moves between recording and eval invalidates the policy, and the magnetic stand is the one to watch for creep.
+
+
+### Why the cameras get re-checked every session
+
+Two things drift, they fail identically, and only one of them is about software.
+
+**Which camera is which** — indices move whenever a device re-registers. That is covered in
+detail in [03 §When do camera indices change](03-teleop-and-data.md#when-do-camera-indices-change);
+catch it by looking at the feeds with `python -m phi.utils.camera_align 0 1 2 3`.
+
+**Where each camera is pointing** is the one people skip. A policy did not learn "find the cube".
+It learned a mapping from this viewpoint to joint angles. Move a camera two centimetres and every
+pixel shifts while the policy keeps applying the correspondence it learned. Because the rig comes
+down daily, this happens constantly, and it is invisible in the feed — the image still looks
+correct, it is just taken from somewhere the policy has never been.
+
+`camera_realign` overlays the live feed on a resting frame from the dataset itself, so you are
+matching against the exact geometry the policy was trained on:
+
+```bash
+python -m phi.utils.camera_realign --dataset cubes_cylinder_v1 wrist=0 top=1 front=2
+```
+
+Under 2 px per axis is aligned. Put the follower in its resting pose first — the arm is in the
+reference frame too, so if it is parked elsewhere everything ghosts and the score is meaningless.
+
+Neither failure raises an error. A policy fed the wrong viewpoint just gets quietly worse, and the
+natural reading is that the policy is bad.
 
 ## ⚠️ Safety (read before powering on)
 - **Clear the workspace** of hands and fragile objects before teleop or a policy rollout — a trained policy can move unexpectedly.
