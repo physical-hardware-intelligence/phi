@@ -99,10 +99,21 @@ def check_port(port: str, force: bool) -> None:
     four printed lines rather than the port alone. Run `lerobot-find-port` on its
     own, read the port, paste it in.
     """
-    if Path(port).exists():
+    # Ask pyserial, do not stat the filesystem. On Windows a port is "COM3",
+    # which is not a path -- Path("COM3").exists() is False, so a filesystem
+    # check rejects a perfectly good port and then reports zero devices.
+    from serial.tools import list_ports
+
+    # Union of both sources, because neither alone is complete:
+    #   pyserial reports COM3 on Windows and /dev/cu.* on macOS
+    #   our ports.local.sh uses /dev/tty.*, which pyserial does NOT list
+    candidates = sorted(
+        {p.device for p in list_ports.comports()}
+        | {str(p) for p in Path("/dev").glob("tty.usbmodem*")}
+    )
+    if port in candidates or Path(port).exists():
         print(f"  port OK          {port}")
         return
-    candidates = sorted(str(p) for p in Path("/dev").glob("tty.usbmodem*"))
     _fail(
         f"no such device: {port}\n"
         + (f"    USB serial devices visible now:\n"

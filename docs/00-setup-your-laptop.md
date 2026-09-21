@@ -13,7 +13,7 @@ motors, calibration, cameras — comes after, and assumes you finished this.
 |---|---|---|
 | **git** | clone the repo | `git --version` |
 | **conda** (miniforge) | the env is a conda env, not a venv, because `ffmpeg` is a conda package | `conda --version` |
-| **macOS 13+ / Ubuntu 22.04+** | Apple Silicon or an NVIDIA box | — |
+| **macOS 13+, Ubuntu 22.04+, or Windows 10/11** | all three are supported; see the platform notes below | — |
 | ~15 GB free | env is ~8 GB, datasets add more | `df -h ~` |
 
 No conda? Install **miniforge**, not Anaconda — smaller, conda-forge by default, which is
@@ -26,7 +26,12 @@ brew install miniforge && conda init "$(basename "$SHELL")"
 wget -qO- https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh | bash
 ```
 
-Open a **new terminal** afterwards. `conda init` edits your shell rc and the current shell
+Windows: download the Miniforge3 Windows installer from the
+[releases page](https://github.com/conda-forge/miniforge/releases/latest), then use the
+**Miniforge Prompt** from the Start menu. To use PowerShell instead, run `conda init powershell`
+once.
+
+Open a **new terminal** afterwards. `conda init` edits your shell profile and the current shell
 will not have it.
 
 ---
@@ -117,6 +122,59 @@ training dies with `GatedRepoError` at processor construction.
 
 ---
 
+## 4.5 Windows
+
+Run Φ **natively on Windows. Do not use WSL.** LeRobot 0.6.0 supports Windows directly, and
+WSL2 has no native USB passthrough — you would need `usbipd-win` for the arm and a custom
+kernel for the cameras. Native is both simpler and better supported.
+
+What LeRobot does differently on Windows, from its source:
+
+| | |
+|---|---|
+| Serial ports | `lerobot-find-port` lists **`COM3`, `COM4`…** via pyserial, not `/dev/tty*` (`lerobot_find_port.py:36`) |
+| Cameras | sets `OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS=0` before importing cv2 (`camera_opencv.py:31`) — a workaround for an MSMF bug that otherwise gives black frames or a hang |
+| Camera config | FOURCC is applied **after** width/height/fps, and pre-validation is skipped (`camera_opencv.py:205`) |
+| Timing | busy-waits instead of sleeping, because Windows timer granularity is ~15 ms (`robot_utils.py:39`) |
+| `--play_sounds` | speaks through PowerShell's `SpeechSynthesizer` |
+
+### Three things to set up
+
+**USB-serial driver.** macOS enumerates the SO-101 control board natively; Windows often does
+not. If the board does not appear in Device Manager under *Ports (COM & LPT)*, install the
+**CH340** or **CP210x** driver depending on your board, then replug.
+
+**A bash shell for the `.sh` files.** `configs/ports.local.sh` and everything under
+`configs/hpc/` are shell scripts. Use **Git Bash**, which ships with Git for Windows —
+`source configs/ports.local.sh` works there and exports real environment variables that the
+Python CLIs inherit. In PowerShell, set them directly instead:
+
+```powershell
+$env:FOLLOWER_PORT = "COM4"
+$env:LEADER_PORT   = "COM3"
+$env:FOLLOWER_ID   = "phi_follower"
+$env:LEADER_ID     = "phi_leader"
+```
+
+**Developer Mode**, for the Hugging Face cache. `huggingface_hub` uses symlinks, which need
+either Developer Mode or an elevated shell. Without it the cache silently falls back to full
+file copies — it still works, but a 14 GB model is stored twice. Settings → System → For
+developers → Developer Mode.
+
+### Known Windows limits
+
+- **Long paths.** The HF cache nests deeply and can exceed the 260-character `MAX_PATH`.
+  Enable long paths: `git config --system core.longpaths true`, and set
+  `HF_HOME` to something short such as `C:\hf`.
+- **`import cv2` before lerobot.** LeRobot sets the MSMF workaround at import time. If your own
+  script imports `cv2` first, the variable is never applied and cameras may hang. Import
+  `lerobot` first, or set `OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS=0` yourself.
+- **No MPS.** Use `--policy.device=cuda` on an NVIDIA laptop, `cpu` otherwise. CPU inference is
+  fine for ACT at low `n_action_steps` and too slow for a VLA.
+- **`configs/hpc/*.sbatch` are for the Linux cluster** and are not meant to run locally.
+
+---
+
 ## 5. Your machine's ports file
 
 **This file does not exist after a clone.** It is git-ignored because serial ports differ per
@@ -125,6 +183,9 @@ laptop, and nearly every command in these docs begins by sourcing it.
 ```bash
 lerobot-find-port        # run TWICE — once per arm, unplugging when prompted
 ```
+
+On macOS and Linux this prints `/dev/tty.usbmodem…` or `/dev/ttyACM0`. On Windows it prints
+`COM3`-style names, and those are what go in the file.
 
 Then copy the template and put your two ports in it:
 
