@@ -29,11 +29,9 @@ We don't reinvent the engine. [LeRobot](https://github.com/huggingface/lerobot) 
 
 ```bash
 git clone https://github.com/physical-hardware-intelligence/phi.git && cd phi
-conda env create -f env/environment.mac.yml   # or environment.cuda.yml on a GPU box
+make install                 # env + package + verify   (ENV=cuda on a GPU box)
 conda activate phi
-pip install -e .
-cp configs/ports.local.sh.example configs/ports.local.sh   # then put your ports in it
-make help
+make doctor                  # tells you what is still wrong
 ```
 
 **New here? Read [`docs/00-setup-your-laptop.md`](docs/00-setup-your-laptop.md) instead** — it

@@ -60,7 +60,7 @@ import os
 import sys
 from dataclasses import dataclass
 
-import cv2
+from phi.utils.camera_backend import cv2, open_camera
 import numpy as np
 
 # Physical camera name -> dataset key, per dataset. Substring match on the
@@ -77,6 +77,14 @@ KEY_OVERRIDES: dict[str, dict[str, str]] = {
     "phi_so101_8bin_v1": {
         "wrist": "observation.images.top",
         "front": "observation.images.front",
+        "top": "observation.images.wrist",
+    },
+    # 🚨 Keys ROTATED BY ONE. Verified 2026-09-05 by decoding frames from all
+    # three streams: `...front` holds wrist footage, `...top` holds front,
+    # `...wrist` holds top. See configs/hpc/train_pen_act.sbatch.
+    "pen_pick_and_place": {
+        "wrist": "observation.images.front",
+        "front": "observation.images.top",
         "top": "observation.images.wrist",
     },
 }
@@ -405,10 +413,7 @@ def main(argv: list[str] | None = None) -> int:
 
     caps = {}
     for name, idx in feeds:
-        cap = cv2.VideoCapture(idx)
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
+        cap = open_camera(idx, width=args.width, height=args.height, fps=args.fps)
         if not cap.isOpened():
             for c in caps.values():
                 c.release()

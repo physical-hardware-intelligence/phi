@@ -169,27 +169,35 @@ def _fail(msg: str, force: bool) -> None:
 def confirm_cameras(cameras: dict[str, int | str], force: bool) -> None:
     """Show one frame per camera, labelled with the key it feeds, and ask."""
     try:
-        import cv2
         import numpy as np
+
+        from phi.utils.camera_backend import IS_WINDOWS, cv2, open_camera
     except ImportError:
         _fail("opencv/numpy unavailable, cannot verify camera mapping", force)
         return
 
     tiles = []
     for name, idx in cameras.items():
-        cap = cv2.VideoCapture(idx)
+        cap = open_camera(idx)
         ok, frame = cap.read()
         cap.release()
         if not ok or frame is None:
             _fail(
                 f"camera {name}={idx} gave no frame.\n"
                 "    Three causes, in order of likelihood:\n"
-                "      1. wrong index          -> python -m phi.utils.camera_realign\n"
-                "      2. device busy          -> close Photo Booth / LeLab / another rollout\n"
-                "      3. macOS camera permission NOT granted to this terminal\n"
-                "         (OpenCV prints 'not authorized to capture video'). Grant it in\n"
-                "         System Settings > Privacy & Security > Camera, for the app running\n"
-                "         python (Terminal / iTerm / VS Code), then restart the terminal.",
+                "      1. wrong index          -> python -m phi.utils.camera_align 0 1 2 3\n"
+                "      2. device busy          -> close Photo Booth / Camera app / LeLab /\n"
+                "                                 another rollout holding the device\n"
+                + ("      3. Windows privacy setting blocks camera access for desktop apps.\n"
+                   "         Settings > Privacy & security > Camera > 'Let desktop apps\n"
+                   "         access your camera'. If the window opens black instead, the\n"
+                   "         MSMF backend is the cause and phi.utils.camera_backend handles\n"
+                   "         it -- make sure nothing imported cv2 before it."
+                   if IS_WINDOWS else
+                   "      3. macOS camera permission NOT granted to this terminal\n"
+                   "         (OpenCV prints 'not authorized to capture video'). Grant it in\n"
+                   "         System Settings > Privacy & Security > Camera, for the app running\n"
+                   "         python (Terminal / iTerm / VS Code), then restart the terminal."),
                 force,
             )
             return

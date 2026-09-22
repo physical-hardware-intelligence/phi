@@ -102,12 +102,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"connecting to {args.port} with cameras {sorted(cams) or 'none'} ...")
         robot.connect()
     else:
-        import cv2
+        from phi.utils.camera_backend import cv2, open_camera
         for n, i in cams.items():
-            c = cv2.VideoCapture(i)
-            c.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-            c.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            c.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            c = open_camera(i, width=640, height=480)
             raw_caps[n] = c
         print(f"cameras only: {sorted(cams)}")
 

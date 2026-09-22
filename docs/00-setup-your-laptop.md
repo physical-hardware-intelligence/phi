@@ -50,60 +50,48 @@ not vendored.
 ## 2. Create the environment
 
 ```bash
-conda env create -f env/environment.mac.yml     # Apple Silicon
-conda env create -f env/environment.cuda.yml    # NVIDIA box
+make install          # Apple Silicon
+make install ENV=cuda # NVIDIA box
 conda activate phi
-pip install -e .
 ```
+
+Idempotent — safe to re-run after a `git pull` that touches `env/`. It creates or updates the
+conda env, editable-installs the `phi` package into it, and prints the versions.
 
 ### What each piece is for
 
 | package | why it is there |
 |---|---|
 | `python=3.12` | `pyproject.toml` sets `requires-python = ">=3.12"`; LeRobot 0.6.0 needs it |
-| `ffmpeg` | **conda-level**, not pip. TorchCodec decodes dataset videos through it. Without it `LeRobotDataset` fails at load, not at install |
+| `ffmpeg` | conda-level, not pip. TorchCodec decodes dataset videos through it. Without it `LeRobotDataset` fails at load, not at install |
 | `uv` | fast resolver for the pip block |
-| `lerobot[...]==0.6.0` | the engine. Pinned deliberately |
+| `lerobot[...]==0.6.0` | the engine, pinned deliberately |
 | ↳ `feetech` | driver for the STS3215 servos. No arm without it |
 | ↳ `core_scripts` | the `lerobot-calibrate` / `-teleoperate` / `-record` / `-rollout` CLIs |
 | ↳ `training` | `lerobot-train` hard-requires `accelerate`, which only this extra pulls |
 | `wandb` | training charts |
-| `pip install -e .` | the thin Φ layer: `phi.utils.*`, `phi.eval.*`. Only pulls pyyaml/typer/rich — the heavy deps are the env's job |
+| `pip install -e .` | the thin Φ layer: `phi.utils.*`, `phi.eval.*` |
 
 **The pin is not cosmetic.** Mac and CUDA envs must be on the same LeRobot version or a
-checkpoint trained on one will not load on the other. Change it in both files or neither.
+checkpoint trained on one will not load on the other.
 
-Per-policy extras, installed only when you need them:
+Per-policy extras, when you need them:
 
 ```bash
-pip install "lerobot[smolvla]==0.6.0"     # SmolVLA
-pip install "lerobot[pi]==0.6.0"          # π₀ / π₀.₅ — this is transformers + scipy
-pip install "lerobot[diffusion]==0.6.0"   # Diffusion Policy
-pip install peft grpcio                   # LoRA finetuning / remote inference
+make policies         # smolvla + pi + diffusion, into the existing env
 ```
 
 ---
 
-## 3. Verify it actually worked
-
-Do not skip this. Every failure below is silent if you do.
+## 3. Check it
 
 ```bash
-conda activate phi
-python -c "
-import torch, lerobot, sys
-print('python     ', sys.version.split()[0], '   <- must be 3.12.x')
-print('which python', sys.executable, '   <- must contain envs/phi')
-print('lerobot    ', lerobot.__version__, '   <- must be 0.6.0')
-print('torch      ', torch.__version__)
-print('accelerator', 'mps' if torch.backends.mps.is_available() else
-                     ('cuda' if torch.cuda.is_available() else 'CPU ONLY'))
-import torchcodec; print('torchcodec ', torchcodec.__version__, '  <- video decode OK')
-"
-lerobot-find-port --help >/dev/null && echo 'CLIs on PATH'
+make doctor
 ```
 
-All six lines must be right. `CPU ONLY` on a Mac means the wrong Python — see below.
+Eleven checks — interpreter, versions, accelerator, camera backend, cameras, serial devices,
+ports file, calibration frame, Hugging Face auth — each printing `ok`, `warn` or `FAIL` with
+the fix underneath. Run it any time something behaves strangely; it touches no hardware.
 
 ---
 
@@ -204,16 +192,25 @@ and rollout command assumes those two strings.
 
 ---
 
-## 6. macOS camera permission
+## 6. Camera permission
 
-Your **terminal** needs it, not Python. Without it every camera opens black with no error.
+Cameras open black, with no error, until the OS lets them through. `make doctor` reports this.
 
-System Settings → Privacy & Security → Camera → enable Terminal (or iTerm/VS Code). Then
-**fully quit and reopen** the app; a new tab is not enough.
+| | |
+|---|---|
+| **macOS** | Privacy & Security → Camera → enable your terminal, then **fully quit and reopen** it. A new tab is not enough. |
+| **Windows** | Settings → Privacy & security → Camera → *Let desktop apps access your camera*. |
+| **Linux** | check `/dev/video*` permissions and that you are in the `video` group. |
 
 ```bash
-python -m phi.utils.camera_align 0 1 2 3     # should show live feeds
+python -m phi.utils.camera_align 0 1 2 3
 ```
+
+Every camera in this repo opens through `phi.utils.camera_backend`, which picks DirectShow on
+Windows, disables the MSMF hardware-transform path before cv2 is imported, and applies FOURCC
+after the frame size on Windows and before it everywhere else. Each of those is a silent
+black-frame bug if you get it wrong, so do not call `cv2.VideoCapture` directly — import
+`open_camera` from that module.
 
 ---
 

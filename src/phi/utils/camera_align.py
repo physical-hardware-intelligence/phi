@@ -33,23 +33,15 @@ from __future__ import annotations
 import argparse
 import sys
 
-import cv2
 import numpy as np
+
+from phi.utils.camera_backend import cv2, open_camera
 
 GRID = (0, 220, 0)
 CROSS = (0, 0, 255)
 LABEL = (0, 255, 255)
 
 
-def open_camera(index: int, width: int, height: int, fps: int) -> cv2.VideoCapture:
-    cap = cv2.VideoCapture(index)
-    # MJPG matters: uncompressed YUY2 blows the USB 2.0 budget once you have
-    # more than two cameras on the bus. See 02-setup.md section 5c.
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-    cap.set(cv2.CAP_PROP_FPS, fps)
-    return cap
 
 
 def annotate(frame: np.ndarray, label: str, width: int, height: int) -> np.ndarray:

@@ -49,7 +49,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
-import cv2
+from phi.utils.camera_backend import cv2, open_camera
 import numpy as np
 
 from phi.utils.camera_realign import choose, discover
@@ -141,10 +141,7 @@ def reference_frames(ds, episode: int, names: list[str]) -> dict[str, np.ndarray
 def open_cameras(cameras: dict[str, int], width: int = 640, height: int = 480) -> dict:
     caps = {}
     for n, idx in cameras.items():
-        cap = cv2.VideoCapture(idx)
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        cap = open_camera(idx, width=width, height=height)
         caps[n] = cap
     return caps
 
