@@ -42,6 +42,56 @@ lerobot-train --policy.path=lerobot/smolvla_base --dataset.repo_id=${HF_USER}/ph
 ```
 Cloud (HF Jobs): add `--job.target=a10g-small` (list flavors: `hf jobs hardware`) and `--save_checkpoint_to_hub=true`.
 
+## Train ACT on Explorer (the HPC)
+
+A laptop will not finish 60k steps. Everything above runs locally; this is the cluster path.
+
+**Once, the first time.** Clone the repo into your Explorer `$HOME` and build the env on a
+compute node — the login node kills `conda env create`:
+
+```bash
+ssh explorer
+git clone https://github.com/physical-hardware-intelligence/phi.git ~/phi && cd ~/phi
+sbatch configs/hpc/build_env.sbatch          # ~18 min, no GPU
+```
+
+**Then, per run:**
+
+```bash
+cd ~/phi
+sbatch --export=ALL,REPO_ID=<hf-dataset-id>,RUN=<your-name> configs/hpc/train_act_student.sbatch
+squeue -u $USER
+tail -f phi-act-<jobid>.out
+```
+
+Override anything the same way: `...,STEPS=60000,CHUNK=100,BATCH_SIZE=16`.
+
+`train_act_student.sbatch` derives every path from `$USER`, so nothing needs editing. The
+older `train_*.sbatch` files in that folder are records of specific past runs and hardcode
+one account — read them for what was tried, do not copy them.
+
+### Four things that will cost you a day each
+
+| | |
+|---|---|
+| `PYTHONNOUSERSITE=1` | a stale torch in `~/.local` shadows the env. Usually `ImportError: libnvJitLink.so.12`; sometimes it just **trains with the wrong torch and says nothing**. Already in the script |
+| 8-hour wall | ACT at 60k steps fits. If you raise `STEPS`, chain jobs with `--resume` rather than asking for more time |
+| `--steps` is the LR horizon | the cosine schedule ends at `--steps`. Changing it on resume silently changes the schedule |
+| The last checkpoint is not the best | score them all before you pick one, see below |
+
+### Choosing which checkpoint to submit
+
+```bash
+python -m phi.eval.loss_by_checkpoint --run /scratch/$USER/phi-results/<RUN> --max-batches 40
+```
+
+Every checkpoint on the identical holdout. On our π₀.₅ run the best was 22,500 of 30,000 and
+the final one was 3.5% worse — deploying the last step would have been a measurable mistake.
+
+Held-out loss is still **not** success rate. [experiments/2026-08-12](../../experiments/2026-08-12_dp-recovery-encoder-ab.md)
+has a checkpoint whose loss rose 4× and matched a 100k-step model on the arm. Use the score to
+decide which two or three get arm time; rollouts decide the rest.
+
 ## The Φ rules
 - **Every run is a committed config** in [`configs/`](../../configs/) + a fixed seed + the exact command in the [experiment write-up](../../experiments/). No orphan runs.
 - **Every trained model gets a card** in [`models/`](../../models/) (id, dataset, policy, steps, eval score, known failure modes). Weights live on the Hub.
