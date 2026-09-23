@@ -6,7 +6,7 @@
 #          configs/hpc/train_act_student.sbatch
 #
 #   squeue -u $USER                       # is it queued / running
-#   tail -f ~/phi-logs/<RUN>-<jobid>.out  # watch it
+#   tail -f phi-act-<jobid>.out           # watch it (lands in the submit dir)
 #
 # Everything below is overridable the same way, e.g. ...,STEPS=100000,CHUNK=100
 #   (except SEED, which is fixed -- see below)
@@ -37,10 +37,9 @@ SEED=1000
 
 # --- paths, all derived from YOUR account ----------------------------------
 SCRATCH=/scratch/$USER
-LOGS=$HOME/phi-logs
 RESULTS=$SCRATCH/phi-results
 ENV_PREFIX=${ENV_PREFIX:-$SCRATCH/envs/phi-cuda}   # or the shared one, see docs
-mkdir -p "$LOGS" "$RESULTS" "$SCRATCH/.cache"
+mkdir -p "$RESULTS" "$SCRATCH/.cache"
 
 # 🚨 Without this, a stale torch in ~/.local shadows the env. On most nodes that
 #    dies with "ImportError: libnvJitLink.so.12"; on the rest it SILENTLY TRAINS
