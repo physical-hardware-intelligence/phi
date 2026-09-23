@@ -8,7 +8,8 @@
 #   squeue -u $USER                       # is it queued / running
 #   tail -f ~/phi-logs/<RUN>-<jobid>.out  # watch it
 #
-# Everything below is overridable the same way, e.g. ...,STEPS=60000,CHUNK=100
+# Everything below is overridable the same way, e.g. ...,STEPS=100000,CHUNK=100
+#   (except SEED, which is fixed -- see below)
 # ─────────────────────────────────────────────────────────────────────────────
 #SBATCH --job-name=phi-act
 #SBATCH --partition=gpu
@@ -30,7 +31,9 @@ BATCH_SIZE=${BATCH_SIZE:-8}
 SAVE_FREQ=${SAVE_FREQ:-10000}
 EVAL_STEPS=${EVAL_STEPS:-10000}
 EVAL_SPLIT=${EVAL_SPLIT:-0.15}
-SEED=${SEED:-1000}
+# FIXED for the competition. Varying the seed and submitting the best of ten
+# runs rewards queue time, not understanding. Everything else is yours.
+SEED=1000
 
 # --- paths, all derived from YOUR account ----------------------------------
 SCRATCH=/scratch/$USER
