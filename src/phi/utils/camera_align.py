@@ -35,7 +35,7 @@ import sys
 
 import numpy as np
 
-from phi.utils.camera_backend import cv2, open_camera
+from phi.utils.camera_backend import cv2, probe_camera
 
 GRID = (0, 220, 0)
 CROSS = (0, 0, 255)
@@ -111,14 +111,18 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     feeds = [parse_feed(t) for t in (args.feeds or ["0", "1"])]
-    cams = [(name, i, open_camera(i, args.width, args.height, args.fps)) for name, i in feeds]
-
-    dead = [i for _, i, cap in cams if not cap.isOpened()]
+    # probe_camera returns None rather than raising, so one missing index does
+    # not abort the whole preview -- the point of this tool is finding out which
+    # indices are real.
+    probed = [(name, i, probe_camera(i, width=args.width, height=args.height, fps=args.fps))
+              for name, i in feeds]
+    dead = [i for _, i, cap in probed if cap is None]
+    cams = [(name, i, cap) for name, i, cap in probed if cap is not None]
     if dead:
         print(f"could not open index {dead} — see what is attached with "
               f'`ffmpeg -f avfoundation -list_devices true -i ""`, then probe indices here '
               f"(AVFoundation numbering != OpenCV numbering)", file=sys.stderr)
-    if all(not cap.isOpened() for _, _, cap in cams):
+    if not cams:
         return 1
 
     if args.rerun:

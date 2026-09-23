@@ -75,16 +75,16 @@ def check_accelerator() -> None:
 
 def check_cameras(indices: list[int]) -> None:
     try:
-        from phi.utils.camera_backend import backend_name, open_camera
+        from phi.utils.camera_backend import probe_camera
     except ImportError:
         say(BAD, "camera backend", "phi not installed", "pip install -e .")
         return
-    say(OK, "camera backend", backend_name())
-
     opened = []
     for i in indices:
-        cap = open_camera(i)
-        ok, frame = (cap.read() if cap.isOpened() else (False, None))
+        cap = probe_camera(i)
+        if cap is None:
+            continue
+        ok, frame = cap.read()
         cap.release()
         if ok and frame is not None:
             opened.append(f"{i}({frame.shape[1]}x{frame.shape[0]})")

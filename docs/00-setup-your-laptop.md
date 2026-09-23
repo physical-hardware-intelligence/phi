@@ -206,11 +206,13 @@ Cameras open black, with no error, until the OS lets them through. `make doctor`
 python -m phi.utils.camera_align 0 1 2 3
 ```
 
-Every camera in this repo opens through `phi.utils.camera_backend`, which picks DirectShow on
-Windows, disables the MSMF hardware-transform path before cv2 is imported, and applies FOURCC
-after the frame size on Windows and before it everywhere else. Each of those is a silent
-black-frame bug if you get it wrong, so do not call `cv2.VideoCapture` directly — import
-`open_camera` from that module.
+Every camera in this repo opens through `phi.utils.camera_backend`, which delegates to
+LeRobot's `OpenCVCamera` — that is what knows to pick DirectShow on Windows, set the MSMF
+hardware-transform variable before cv2 is imported, and apply FOURCC after the frame size on
+Windows rather than before. Each is a silent black-frame bug if you get it wrong, and we got
+all three wrong once by hand-rolling it.
+
+Do not call `cv2.VideoCapture` directly. `make test` fails if you do.
 
 ---
 

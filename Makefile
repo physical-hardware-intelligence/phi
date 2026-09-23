@@ -40,8 +40,8 @@ doctor:  ## Diagnose this machine: env, cameras, ports, calibration, HF auth
 lint:  ## ruff + mypy
 	ruff check src tests && mypy src
 
-test:  ## unit + smoke tests
-	pytest -q tests
+test:  ## unit + smoke tests (includes the no-raw-cv2 guard)
+	conda run -n phi --no-capture-output python -m pytest -q tests
 
 docs:  ## Serve the docs site locally (mkdocs)
 	mkdocs serve

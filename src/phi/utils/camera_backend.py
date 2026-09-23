@@ -1,57 +1,86 @@
-"""Open a UVC camera the way each OS actually wants. Import this BEFORE cv2.
+"""Open cameras through LeRobot, with a probe-friendly wrapper.
 
-Every tool in this package opened cameras with the same six lines, and those six
-lines are wrong on Windows in three separate ways. This module is the one place
-that knows about it.
+    from phi.utils.camera_backend import cv2, open_camera, probe_camera
 
-    from phi.utils.camera_backend import cv2, open_camera   # cv2 re-exported, see below
+    cap = open_camera(0, width=640, height=480)     # raises if it is not there
+    cap = probe_camera(7)                           # returns None if it is not there
+    ok, frame = cap.read()                          # BGR, ready for cv2.imshow
+    cap.release()
 
-    cap = open_camera(0, width=640, height=480, fps=30)
+WHY THIS DELEGATES INSTEAD OF REIMPLEMENTING
 
-WHY THIS EXISTS
+`lerobot.cameras.opencv.OpenCVCamera` already solves the three things that make
+raw `cv2.VideoCapture` wrong on Windows, and it solves them the same way for
+everyone:
 
-1. MSMF HARDWARE TRANSFORMS. On Windows, OpenCV's default Media Foundation
-   backend hangs or returns black frames unless
-   `OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS=0` is set *before cv2 is imported*.
-   LeRobot does this in `cameras/opencv/camera_opencv.py:31`, but only helps you
-   if lerobot is imported first — our tools import cv2 directly and never touch
-   lerobot. Hence the re-export: `from phi.utils.camera_backend import cv2` gets
-   you a cv2 that was imported after the variable was set.
+  * sets OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS=0 before importing cv2
+  * selects a backend (DirectShow on Windows) rather than taking the default
+  * applies FOURCC AFTER width/height/fps on Windows and BEFORE elsewhere
 
-2. THE BACKEND. Windows defaults to MSMF, which is slow to open and frequently
-   ignores `set()`. DirectShow is the reliable choice for UVC webcams. macOS and
-   Linux are fine on their defaults (AVFoundation / V4L2).
+We used to hand-roll all three in four separate files and got all three wrong,
+which is how a Windows student ended up unable to run camera_align. Anything
+LeRobot does, call LeRobot.
 
-3. PROPERTY ORDER. On Windows the FOURCC must be applied AFTER width, height and
-   fps or it is silently dropped; everywhere else it must go FIRST or the driver
-   picks a resolution for the old format. LeRobot flags the same asymmetry at
-   `camera_opencv.py:205`. Getting this backwards costs you MJPG, and without
-   MJPG three cameras do not fit in the USB 2.0 budget (02-setup.md section 5c).
+WHY A WRAPPER IS STILL NEEDED
 
-None of the three fails loudly. You get a black window, or a camera that opens
-at 640x480 YUY2 and starves the others.
+`OpenCVCamera` is built for a configured rig, and our tools probe. Three
+mismatches, all handled here:
+
+  * `connect()` RAISES ConnectionError on a missing index. Probe loops want a
+    None, not an exception — hence `probe_camera`.
+  * `read()` returns a frame and raises on failure, and needs the background
+    thread that `connect()` starts. Our display loops expect the OpenCV
+    `(ok, frame)` idiom, so `_Cam.read()` restores it.
+  * the default colour mode is RGB, which `cv2.imshow` renders with red and
+    blue swapped. We force BGR, because everything here is for human eyes.
+
+`disconnect()` MUST run or the read thread keeps the process alive. `_Cam` is a
+context manager, and `release()` is aliased to it so existing call sites that
+say `cap.release()` keep working.
 """
 
 from __future__ import annotations
 
-import os
-import platform
+from typing import Any
 
-IS_WINDOWS = platform.system() == "Windows"
+from lerobot.cameras.configs import ColorMode
+from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
 
-# MUST precede `import cv2`. Setting it afterwards has no effect: the MSMF
-# backend reads it once, at module import.
-if IS_WINDOWS:
-    os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
+# Re-exported so callers never `import cv2` themselves. By the time lerobot has
+# been imported, the MSMF variable is already set; importing cv2 first is what
+# defeats it.
+import cv2  # noqa: E402
 
-import cv2  # noqa: E402  — the import order above is the entire point
-
-__all__ = ["cv2", "open_camera", "IS_WINDOWS", "backend_name"]
+__all__ = ["cv2", "open_camera", "probe_camera", "find_cameras", "_Cam"]
 
 
-def backend_name() -> str:
-    """Human-readable backend, for preflight output."""
-    return "DirectShow" if IS_WINDOWS else ("AVFoundation" if platform.system() == "Darwin" else "V4L2")
+class _Cam:
+    """OpenCVCamera with the `(ok, frame)` / `release()` idiom our tools use."""
+
+    def __init__(self, cam: OpenCVCamera, index: int | str) -> None:
+        self._cam = cam
+        self.index = index
+
+    def read(self) -> tuple[bool, Any]:
+        try:
+            return True, self._cam.read()
+        except Exception:
+            return False, None
+
+    def isOpened(self) -> bool:  # noqa: N802 — matches cv2.VideoCapture
+        return self._cam.is_connected
+
+    def release(self) -> None:
+        try:
+            self._cam.disconnect()
+        except Exception:
+            pass
+
+    def __enter__(self) -> _Cam:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.release()
 
 
 def open_camera(
@@ -60,29 +89,39 @@ def open_camera(
     height: int = 480,
     fps: int = 30,
     fourcc: str | None = "MJPG",
-) -> cv2.VideoCapture:
-    """Open one camera with the right backend and the right property order.
+    warmup: bool = False,
+) -> _Cam:
+    """Open one camera. Raises ConnectionError if it is not there.
 
-    Returns the capture whether or not it opened — callers already check
-    `isOpened()` and produce their own message naming which camera failed.
+    `warmup=False` by default: LeRobot waits `warmup_s` (1 s) per camera for a
+    first frame, which is right for a recording session and four seconds of
+    dead air in a four-camera preview.
+
+    MJPG is not cosmetic. Uncompressed YUY2 blows the USB 2.0 budget once more
+    than two cameras share a bus — see 02-setup.md section 5c.
     """
-    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW) if IS_WINDOWS else cv2.VideoCapture(index)
+    cam = OpenCVCamera(
+        OpenCVCameraConfig(
+            index_or_path=index,
+            width=width,
+            height=height,
+            fps=fps,
+            fourcc=fourcc,
+            color_mode=ColorMode.BGR,
+        )
+    )
+    cam.connect(warmup=warmup)
+    return _Cam(cam, index)
 
-    def _fourcc() -> None:
-        if fourcc:
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
 
-    def _size() -> None:
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        cap.set(cv2.CAP_PROP_FPS, fps)
+def probe_camera(index: int | str, **kw: Any) -> _Cam | None:
+    """`open_camera` that returns None instead of raising. For scanning indices."""
+    try:
+        return open_camera(index, **kw)
+    except Exception:
+        return None
 
-    # See point 3 above.
-    if IS_WINDOWS:
-        _size()
-        _fourcc()
-    else:
-        _fourcc()
-        _size()
 
-    return cap
+def find_cameras() -> list[dict[str, Any]]:
+    """Every camera LeRobot can see. Linux enumerates /dev/video*, others scan indices."""
+    return OpenCVCamera.find_cameras()

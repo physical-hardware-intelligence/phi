@@ -62,6 +62,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import platform
 import sys
 import threading
 from pathlib import Path
@@ -171,16 +172,17 @@ def confirm_cameras(cameras: dict[str, int | str], force: bool) -> None:
     try:
         import numpy as np
 
-        from phi.utils.camera_backend import IS_WINDOWS, cv2, open_camera
+        from phi.utils.camera_backend import cv2, probe_camera
     except ImportError:
         _fail("opencv/numpy unavailable, cannot verify camera mapping", force)
         return
 
     tiles = []
     for name, idx in cameras.items():
-        cap = open_camera(idx)
-        ok, frame = cap.read()
-        cap.release()
+        cap = probe_camera(idx)
+        ok, frame = cap.read() if cap else (False, None)
+        if cap:
+            cap.release()
         if not ok or frame is None:
             _fail(
                 f"camera {name}={idx} gave no frame.\n"
@@ -193,7 +195,7 @@ def confirm_cameras(cameras: dict[str, int | str], force: bool) -> None:
                    "         access your camera'. If the window opens black instead, the\n"
                    "         MSMF backend is the cause and phi.utils.camera_backend handles\n"
                    "         it -- make sure nothing imported cv2 before it."
-                   if IS_WINDOWS else
+                   if platform.system() == "Windows" else
                    "      3. macOS camera permission NOT granted to this terminal\n"
                    "         (OpenCV prints 'not authorized to capture video'). Grant it in\n"
                    "         System Settings > Privacy & Security > Camera, for the app running\n"
