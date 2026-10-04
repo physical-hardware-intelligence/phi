@@ -1,5 +1,6 @@
-import { Check, CircleAlert, CircleCheck, Copy, FileText, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CircleAlert, CircleCheck, FileText, TriangleAlert } from "lucide-react";
+import { useEffect } from "react";
+import { CommandBlock } from "../components/CommandBlock";
 import { Notices } from "../components/Notices";
 import { label } from "../lib/labels";
 import { go, studio, useStudio, type LeRobotArm, type LeRobotView } from "../lib/studio";
@@ -133,23 +134,6 @@ function CommandsPanel({ lr }: { lr: LeRobotView }) {
         ))}
       </ol>
     </section>
-  );
-}
-
-/** One flag per line with a trailing backslash, the way LeRobot's docs print them. The copied text is the
- * same, and a shell runs it as one command. */
-function CommandBlock({ cmd }: { cmd: string }) {
-  const parts = cmd.split(/ (?=--|'--)/);
-  const text = parts.join(" \\\n  ");
-  const [done, setDone] = useState(false);
-  return (
-    <div className="cmd-block">
-      <pre><code>{text}</code></pre>
-      <button className="btn btn-ghost btn-sm btn-icon cmd-copy" aria-label="Copy command" title="Copy"
-        onClick={() => { void navigator.clipboard?.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); }}>
-        {done ? <Check aria-hidden /> : <Copy aria-hidden />}
-      </button>
-    </div>
   );
 }
 

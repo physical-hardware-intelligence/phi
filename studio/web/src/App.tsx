@@ -8,6 +8,7 @@ import { Calibrate } from "./pages/Calibrate";
 import { Checks } from "./pages/Checks";
 import { Evaluate } from "./pages/Evaluate";
 import { Files } from "./pages/Files";
+import { Guide } from "./pages/Guide";
 import { Overview } from "./pages/Overview";
 import { Policy } from "./pages/Policy";
 import { Setup } from "./pages/Setup";
@@ -25,6 +26,7 @@ const PAGES: Record<Route, { title: string; sub: string; el: ComponentType }> = 
   evaluate: { title: "Evaluate", sub: "Judge episodes and measure the success rate", el: Evaluate },
   setup: { title: "LeRobot setup", sub: "Your rig as LeRobot reads robot-config.yaml, and the commands for it", el: Setup },
   files: { title: "Files", sub: "Serial ports, rig notes, calibration files and code on this Mac", el: Files },
+  guide: { title: "Guide", sub: "How to set up a rig and use each page", el: Guide },
 };
 
 export function App() {
@@ -51,7 +53,7 @@ export function App() {
       <div className={`shell ${assist ? "has-assist" : ""}`}>
         <Sidebar />
         <div className="main">
-          <TopBar title={page.title} sub={page.sub} onStop={() => studio.stop()} />
+          <TopBar route={route} title={page.title} sub={page.sub} onStop={() => studio.stop()} />
           <main className="content" key={route}>
             <Boundary what={`The ${page.title} page`}><Page /></Boundary>
           </main>

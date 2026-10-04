@@ -557,3 +557,50 @@ fieldset.form { border: 0; margin: 0; min-width: 0; }
 .setup-cams li { display: contents; }
 .setup-cams li > :nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setup-cams li > :nth-child(3) { font-size: var(--text-sm); white-space: nowrap; }
+
+/* ---- guide ---- */
+/* WHY a sticky contents column: the guide is the one long page, and the contents keep every section one click
+   away. Below 900 px it stacks above the sections. */
+.page.guide { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: var(--space-6); align-items: start; max-width: 1180px; }
+.guide-toc { position: sticky; top: var(--space-6); display: grid; gap: 2px; }
+.guide-toc .field-label { padding: 0 var(--space-2) var(--space-2); }
+.guide-toc-item { padding: 5px var(--space-2); border-radius: var(--radius-md); color: var(--text-secondary); text-decoration: none; line-height: 1.25rem; }
+.guide-toc-item:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.guide-toc-item.is-active { color: var(--text-primary); font-weight: 500; background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
+/* WHY after the base rules: same specificity, so this must come later to undo sticky. Stacked, the contents
+   become one wrapping row above the sections. */
+@container content (max-width: 900px) {
+  .page.guide { grid-template-columns: minmax(0, 1fr); }
+  .guide-toc { position: static; display: flex; flex-wrap: wrap; gap: 2px var(--space-1); }
+  .guide-toc .field-label { width: 100%; }
+}
+.guide-body { display: grid; gap: var(--space-5); min-width: 0; }
+.guide-section { scroll-margin-top: var(--space-5); }
+.guide-text { line-height: 1.3125rem; }
+.guide-text p { margin: 0; }
+.guide-note { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: var(--space-2); align-items: start; margin-bottom: var(--space-4) !important;
+  padding: 10px var(--space-3); border-radius: var(--radius-lg); background: var(--warn-subtle); color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--warn-solid) 22%, transparent); }
+.guide-note svg { width: 18px; height: 18px; color: var(--warn-solid); margin-top: 2px; }
+.guide-steps { list-style: none; margin: 0; padding: 0; display: grid; }
+.guide-steps li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: var(--space-3); align-items: start; padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle); }
+.guide-steps li:first-child { border-top: 0; padding-top: 0; }
+.guide-n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: var(--text-xs); font-weight: 600; color: var(--text-secondary); border: 1px solid var(--border-strong); }
+.guide-step { min-width: 0; display: grid; gap: 2px; }
+.guide-step-title { font-weight: 600; line-height: 1.5rem; }
+/* WHY block, not grid: the body is running text with inline code and bold; a grid makes each a row. */
+.guide-step-body { color: var(--text-secondary); }
+.guide-step-body .cmd-block { color: var(--text-primary); margin: var(--space-2) 0; }
+.guide-pages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+@container content (max-width: 900px) { .guide-pages { grid-template-columns: minmax(0, 1fr); } }
+.guide-page { scroll-margin-top: var(--space-5); padding: var(--space-3) var(--space-4) var(--space-4); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); display: grid; gap: 4px; align-content: start; }
+.guide-page.is-target { border-color: var(--accent); }
+.guide-page-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 1.75rem; }
+.guide-page-title { margin: 0; font-size: var(--text-base); font-weight: 600; }
+.guide-page-what { font-weight: 500; }
+.guide-page-how { color: var(--text-secondary); }
+.guide-list { margin: 0; padding-left: 1.1rem; display: grid; gap: var(--space-2); }
+.guide-list li::marker { color: var(--text-tertiary); }
+.guide-table td { white-space: normal; height: auto; padding-top: var(--space-2); padding-bottom: var(--space-2); vertical-align: top; }
+.guide-table td:first-child { width: 30%; }
+.guide-keys td:first-child { width: 22%; white-space: nowrap; }

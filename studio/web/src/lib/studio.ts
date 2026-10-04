@@ -528,12 +528,22 @@ export function useStudio<T>(select: (s: Snapshot) => T): T {
 }
 
 // -- routing and theme -------------------------------------------------------------------------
-export type Route = "overview" | "checks" | "calibrate" | "teleop" | "policy" | "evaluate" | "setup" | "files";
-export const ROUTES: Route[] = ["overview", "checks", "calibrate", "teleop", "policy", "evaluate", "setup", "files"];
+export type Route = "overview" | "checks" | "calibrate" | "teleop" | "policy" | "evaluate" | "setup" | "files" | "guide";
+export const ROUTES: Route[] = ["overview", "checks", "calibrate", "teleop", "policy", "evaluate", "setup", "files", "guide"];
+
+// A route is the hash's first segment; the guide also takes a section, as in #/guide/teleop.
+function hashParts(): string[] { return location.hash.replace(/^#\/?/, "").split("/"); }
 
 function readRoute(): Route {
-  const r = location.hash.replace(/^#\/?/, "") as Route;
+  const r = hashParts()[0] as Route;
   return ROUTES.includes(r) ? r : "overview";
+}
+
+export function useSection(): string | null {
+  return useSyncExternalStore(
+    (l) => { window.addEventListener("hashchange", l); return () => window.removeEventListener("hashchange", l); },
+    () => hashParts()[1] ?? null,
+  );
 }
 
 export function useRoute(): Route {
@@ -543,7 +553,7 @@ export function useRoute(): Route {
   );
 }
 
-export function go(r: Route): void { location.hash = `#/${r}`; }
+export function go(r: Route, section?: string): void { location.hash = section ? `#/${r}/${section}` : `#/${r}`; }
 
 export type Theme = "light" | "dark";
 const THEME_KEY = "phi-studio-theme";

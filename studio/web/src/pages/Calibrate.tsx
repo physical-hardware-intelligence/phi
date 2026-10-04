@@ -172,7 +172,10 @@ function Wizard({ cal }: { cal: CalView }) {
   const cancel = () => { if (sweeping) sweep(false); studio.send({ cmd: "cal_cancel" }); };
 
   const unmoved = Object.entries(cal.joints).filter(([, v]) => !v.fixed && v.min === v.max).map(([j]) => j);
-  const path = rig?.cal_dir ? `${rig.cal_dir}/${expected}.json` : null;
+  // WHY the arm's own file: LeRobot keeps followers and leaders in different folders (robots/so_follower,
+  // teleoperators/so_leader), so cal_dir/<id>.json is not where the file goes.
+  const file = rig?.arms.find((a) => a.name === cal.arm)?.file ?? `${expected}.json`;
+  const path = rig?.cal_dir ? `${rig.cal_dir}/${file}` : null;
 
   return (
     <section className="panel wizard">
@@ -232,7 +235,7 @@ function Wizard({ cal }: { cal: CalView }) {
           <ReviewTable cal={cal} />
           <div className="wizard-actions">
             <span className="wizard-hint">
-              Save writes these registers to {cal.arm}{path ? <> and saves <span className="mono">{path}</span></> : " (no file: Studio has no calibration directory)"}.
+              Save writes these registers to {label(cal.arm)}{path ? <> and saves <span className="mono">{path}</span></> : " (no file: Studio has no calibration directory)"}.
             </span>
             <button className="btn btn-primary" onClick={send("cal_save")} disabled={!control}>Save calibration</button>
           </div>

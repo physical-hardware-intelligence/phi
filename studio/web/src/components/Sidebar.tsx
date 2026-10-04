@@ -1,4 +1,4 @@
-import { Bot, ClipboardCheck, FolderOpen, Gamepad2, LayoutGrid, ListChecks, Moon, Ruler, Sun, TerminalSquare } from "lucide-react";
+import { BookOpen, Bot, ClipboardCheck, FolderOpen, Gamepad2, LayoutGrid, ListChecks, Moon, Ruler, Sun, TerminalSquare } from "lucide-react";
 import type { ComponentType } from "react";
 import { go, setTheme, useRoute, useStudio, useTheme, type Route } from "../lib/studio";
 
@@ -15,6 +15,7 @@ const WORKFLOWS: Item[] = [
   { route: "evaluate", label: "Evaluate", icon: ClipboardCheck },
 ];
 const REFERENCE: Item[] = [
+  { route: "guide", label: "Guide", icon: BookOpen },
   { route: "setup", label: "LeRobot setup", icon: TerminalSquare },
   { route: "files", label: "Files", icon: FolderOpen },
 ];

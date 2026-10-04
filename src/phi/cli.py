@@ -40,7 +40,7 @@ def studio(
         "", help="Model for the Claude assistant, such as sonnet or opus. Empty: Claude's default."
     ),
 ) -> None:
-    """Phi Studio: set up, calibrate, teleoperate, record, and run policies from a local web app."""
+    """Phi Studio: set up, calibrate, teleoperate, run and evaluate policies in a local app."""
     if not mock:
         typer.echo("The hardware backend is not built yet. Run with --mock for now.", err=True)
         raise typer.Exit(1)

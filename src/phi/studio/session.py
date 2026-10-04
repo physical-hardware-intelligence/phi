@@ -27,7 +27,7 @@ class State(Enum):
     CONNECTED = ("Connecting", "info", "Reading each arm's identity")
     IDENTIFIED = ("Confirm arms", "warn", "Check each arm's role and calibration, then confirm")
     READY = ("Torque off", "neutral", "Enable torque to start")
-    ARMED = ("Holding", "info", "Start teleop, a policy, or a replay")
+    ARMED = ("Holding", "info", "Start teleop or a policy")
     MOVING = ("Moving", "ok", "Stop with Esc")
     STOPPED = ("Stopped", "warn", "Resume, or turn torque off")
     FAULT = ("Fault", "danger", "Read the fault, fix it, then clear")

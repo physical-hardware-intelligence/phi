@@ -1,11 +1,11 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { MessageSquareText, OctagonX } from "lucide-react";
-import { studio, useStudio } from "../lib/studio";
+import { CircleHelp, MessageSquareText, OctagonX } from "lucide-react";
+import { go, studio, useStudio, type Route } from "../lib/studio";
 import { StatePill } from "./StatePill";
 
 // The page header. Left: where you are. Right, identical on every page: session state, loop rate,
 // control, and Stop (Franka and UR keep state and stop in one fixed place).
-export function TopBar({ title, sub, onStop }: { title: string; sub: string; onStop: () => void }) {
+export function TopBar({ route, title, sub, onStop }: { route: Route; title: string; sub: string; onStop: () => void }) {
   const state = useStudio((s) => s.state);
   const loop = useStudio((s) => s.telemetry?.loop);
   const control = useStudio((s) => s.control);
@@ -36,6 +36,12 @@ export function TopBar({ title, sub, onStop }: { title: string; sub: string; onS
               </Tooltip.Content>
             </Tooltip.Portal>
           </Tooltip.Root>
+        )}
+        {route !== "guide" && (
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => go("guide", route)}
+            aria-label={`Guide for ${title}`} title={`Guide for ${title}`}>
+            <CircleHelp aria-hidden />
+          </button>
         )}
         <button className={`btn btn-sm ask-btn ${assist ? "is-on" : ""}`} onClick={() => studio.toggleAssistant()}
           aria-pressed={assist} aria-keyshortcuts="Meta+J" aria-label="Ask Claude" title="Ask Claude (⌘J)">

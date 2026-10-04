@@ -12,7 +12,7 @@ export function Cameras({ title = "Cameras" }: { title?: string }) {
     <section className="panel cams-panel">
       <div className="panel-head">
         <h2 className="panel-title">{title}</h2>
-        <span className="panel-sub">Preview at 15 fps; recording uses full rate</span>
+        <span className="panel-sub">Preview at 15 fps</span>
       </div>
       <div className="cams">{keys.map((k) => <CameraTile key={k} name={k} />)}</div>
     </section>
