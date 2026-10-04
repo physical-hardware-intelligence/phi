@@ -36,6 +36,7 @@ from typing import Any
 from aiohttp import WSMsgType, web
 
 from phi.studio.assistant import ClaudeCLI, Conversation
+from phi.studio.checks import Inputs, run_checks
 from phi.studio.evals import EvalError, EvalStore
 from phi.studio.files import FileError, Files, default_roots, list_ports
 
@@ -46,8 +47,8 @@ COMMANDS = {"heartbeat", "connect", "identify", "confirm", "arm", "start", "stop
 EVAL_COMMANDS = {"eval_begin", "eval_mark", "eval_undo", "eval_end"}  # answered by the server
 ANYONE = {"stop", "take_control"}  # allowed from a window without control
 # Answered by the server, from any window: they read, and none reaches the worker.
-READ_ONLY = {"assist_status", "assist_ask", "assist_stop", "assist_reset", "files_index",
-             "file_read", "files_search", "ports"}  # fmt: skip
+READ_ONLY = {"assist_status", "assist_context", "assist_ask", "assist_stop", "assist_reset",
+             "files_index", "file_read", "files_search", "ports", "checks_run"}  # fmt: skip
 CODE_ROOT = Path(__file__).resolve().parents[3]  # src/phi/studio/server.py -> the repo
 LOG_SIZE = 200
 REPLAYED = ("rig", "state", "identity", "worker_exit")  # newest of each, sent to a new window
@@ -121,7 +122,13 @@ class Studio:
         self.run: dict[str, Any] | None = None  # telemetry's policy view, set by the reader thread
         self.telemetry: dict[str, Any] | None = None  # newest, for the assistant's context
         self.log: deque[dict[str, Any]] = deque(maxlen=LOG_SIZE)  # state changes and errors
-        roots = default_roots(code_root or CODE_ROOT, self.data_dir)
+        # Per camera: online, the last error, and when the newest frame arrived with a smoothed
+        # interval between frames, for the checks. Written by the reader thread as whole tuples.
+        self.cameras: dict[str, dict[str, Any]] = {}
+        self.frame_clock: dict[str, tuple[float, float | None]] = {}
+        self.checks: dict[str, Any] | None = None  # the newest check run, for the assistant
+        self.code_root = code_root or CODE_ROOT
+        roots = default_roots(self.code_root, self.data_dir)
         self.files = Files(roots)
         self.cli = ClaudeCLI(cwd=roots[0].path, dirs=[r.path for r in roots[1:]],
                              model=assistant_model)  # fmt: skip
@@ -170,8 +177,22 @@ class Studio:
             self._note("calibrated", f"Saved calibration for {msg.get('arm')}")
         elif kind == "worker_exit":
             self._note("error", msg.get("message", ""), None)
+        elif kind == "frame":
+            self._frame(msg["key"])
+        elif kind == "camera":
+            self.cameras[msg["key"]] = {"online": msg.get("online"), "message": msg.get("message")}
         if self.loop is not None:
             self.loop.call_soon_threadsafe(self._fanout, msg)
+
+    def _frame(self, key: str) -> None:
+        now = time.monotonic()
+        last, gap = self.frame_clock.get(key, (None, None))
+        if last is not None:
+            dt = now - last
+            gap = dt if gap is None else 0.9 * gap + 0.1 * dt  # smoothed over about ten frames
+        self.frame_clock[key] = (now, gap)
+        if not self.cameras.get(key, {}).get("online"):
+            self.cameras[key] = {"online": True, "message": None}
 
     def _note(self, kind: str, text: str, fix: str | None = None) -> None:
         """One line of the log the assistant sees. Called from the reader thread and the loop;
@@ -356,6 +377,9 @@ class Studio:
         try:
             if cmd == "assist_status":
                 client.push({"type": "assist_status", **(await self.cli.status())})
+            elif cmd == "assist_context":  # what the next question would carry, shown on request
+                client.push({"type": "assist_context",
+                             "text": self.context(msg.get("page"), msg.get("focus"))})  # fmt: skip
             elif cmd == "assist_ask":
                 if client.conversation is None:
                     client.conversation = Conversation(self.cli, client.push)
@@ -365,11 +389,21 @@ class Studio:
                 client.conversation.stop()
             elif cmd == "assist_reset" and client.conversation is not None:
                 client.conversation.reset()
+            elif cmd == "checks_run":
+                started = time.monotonic()
+                results = await asyncio.to_thread(run_checks, await self._check_inputs())
+                self.checks = {"type": "checks", "at": time.time(), "results": results,
+                               "ms": round((time.monotonic() - started) * 1000)}  # fmt: skip
+                client.push(self.checks)
             elif cmd == "files_index":
                 client.push({"type": "files", **self.files.index()})
             elif cmd == "file_read":
-                loc = self.files.locate(msg.get("path")) if msg.get("root") is None else None
-                root, path = loc if loc else (msg.get("root"), msg.get("path"))
+                root, path = msg.get("root"), msg.get("path")
+                if root is None:  # a path from an answer: find the folder that holds it
+                    loc = self.files.locate(path)
+                    if loc is None:
+                        raise FileError(f"{path} is not in any folder Studio can show.")
+                    root, path = loc
                 got = await asyncio.to_thread(self.files.read, root, path)
                 client.push({"type": "file", **got, "line": msg.get("line")})
             elif cmd == "files_search":
@@ -383,6 +417,41 @@ class Studio:
         except OSError as e:
             client.push({"type": "file_error", "message": f"Could not read it: {e}",
                          "path": msg.get("path")})  # fmt: skip
+
+    async def _check_inputs(self) -> Inputs:
+        ident = self.last.get("identity", {}).get("arms", [])
+        status, ports = await asyncio.gather(
+            self.cli.status(), asyncio.to_thread(list_ports, ident)
+        )
+        now, cams = time.monotonic(), {}
+        for key, c in list(self.cameras.items()):
+            last, gap = self.frame_clock.get(key, (None, None))
+            cams[key] = {**c, "fps": 1.0 / gap if gap else None,
+                         "age_s": now - last if last is not None else None}  # fmt: skip
+        cal_dir = self.last.get("rig", {}).get("cal_dir")
+        return Inputs(
+            rig_kind=self.spec.get("kind", "mock"),
+            state=self.last.get("state"),
+            identity=ident,
+            telemetry=self.telemetry,
+            cameras=cams,
+            ports=ports,
+            assistant=status,
+            roots={k: r.path for k, r in self.files.roots.items()},
+            rig_cal_dir=Path(cal_dir).expanduser().resolve() if cal_dir else None,
+            data_dir=self.data_dir,
+            code_root=self.code_root,
+            static_dir=STATIC,
+        )
+
+    def _checks_summary(self) -> dict[str, Any] | None:
+        if self.checks is None:
+            return None
+        bad = [r for r in self.checks["results"] if r["status"] in ("warn", "fail")]
+        return {
+            "ran": time.strftime("%H:%M:%S", time.localtime(self.checks["at"])),
+            "not_passing": [{k: r[k] for k in ("title", "status", "detail", "fix")} for r in bad],
+        }
 
     def context(self, page: Any = None, focus: Any = None) -> str:
         """What Studio sees right now, as text for the assistant. Never the token."""
@@ -414,6 +483,7 @@ class Studio:
             "calibration_in_progress": t.get("calibration"),
             "policy_run": t.get("policy"),
             "eval": ev,
+            "checks": self._checks_summary(),
             "log": list(self.log)[-40:],
         }
         text = json.dumps(ctx, indent=1, default=str)

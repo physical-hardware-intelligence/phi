@@ -5,6 +5,7 @@ panel without a Claude login. Reads one JSON user message per line; answers by k
     signout  answer like a signed-out CLI does (checked 2026-10-04)
     silent   never answer
     slow     stream slowly (for Stop)
+    demo     a markdown answer with a list, code and a file path, streamed (for the browser check)
     anything else: echo the question, report two context fields, and "read" a file
 """
 
@@ -25,6 +26,16 @@ def say(text: str, delay: float = 0.0) -> None:
              "delta": {"type": "text_delta", "text": word + " "}}})  # fmt: skip
         time.sleep(delay)
     out({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}})
+
+
+DEMO = (
+    "**Likely cause.** The follower answered on a different port than "
+    "`robot-config.yaml` lists.\n\n"
+    "- Studio read `phi_follower` on `/dev/tty.usbmodem5B7B0096441`.\n"
+    "- The identity check is in src/phi/studio/worker.py:303.\n\n"
+    "**Fix.** Re-plug the follower, then read the arms again:\n\n"
+    "```\nlerobot-find-port\n```"
+)
 
 
 def main() -> None:
@@ -49,6 +60,11 @@ def main() -> None:
             continue
         out({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Read",
              "input": {"file_path": "robot-config.yaml"}}]}})  # fmt: skip
+        if "demo" in question.lower():
+            say(DEMO, delay=0.04)
+            out({"type": "result", "subtype": "success", "is_error": False, "result": "ok",
+                 "duration_ms": 2400})  # fmt: skip
+            continue
         state = "state" in msg and '"state"' in msg
         replayed = "<earlier_turns>" in msg
         say(f"Turn {turns}. You asked: {question}. Context has state: {state}. "

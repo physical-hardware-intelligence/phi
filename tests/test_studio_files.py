@@ -91,6 +91,19 @@ def test_notes_and_calibrations_are_listed(tmp_path: Path) -> None:
     assert ix["calibrations"][0]["kind"] == "so_follower"
 
 
+def test_rig_config_is_the_first_note_even_from_the_second_root(tmp_path: Path) -> None:
+    code, repo = tmp_path / "code", tmp_path / "repo"
+    (code / "docs" / "robots" / "so-arm101").mkdir(parents=True)
+    (code / "docs" / "robots" / "so-arm101" / "02-setup.md").write_text("setup\n")
+    repo.mkdir()
+    (repo / "robot-config.yaml").write_text("robot: {}\n")
+    f = Files([Root("code", "Code", code.resolve()), Root("repo", "Repo", repo.resolve())])
+    assert [(n["root"], n["path"]) for n in f.notes()] == [
+        ("repo", "robot-config.yaml"),
+        ("code", "docs/robots/so-arm101/02-setup.md"),
+    ]
+
+
 def test_locate_maps_a_path_to_its_root(tmp_path: Path) -> None:
     f = tree(tmp_path)
     assert f.locate("src/rig.py") == ("code", "src/rig.py")

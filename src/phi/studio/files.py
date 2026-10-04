@@ -26,7 +26,7 @@ SECRET = (".env", ".env.*", "*.env", "*token*", "*secret*", "*credential*", "*pa
           "*.key", "*.p12", "id_rsa*", "id_ed25519*", ".netrc", ".ssh", ".git")  # fmt: skip
 # Files that answer "which port, which arm, which camera" on this machine, when a root has them.
 NOTES = (
-    ("robot-config.yaml", "Rig config for this Mac: ports, arm ids, cameras"),
+    ("robot-config.yaml", "Rig config for this Mac"),
     ("configs/ports.local.sh", "Ports captured by capture-ports"),
     ("configs/camera-map.log", "Camera index log"),
     ("docs/robots/so-arm101/troubleshooting.md", "SO-101 troubleshooting notes"),
@@ -191,7 +191,8 @@ class Files:
                     seen.add(rel)
                     out.append({"root": r.key, "path": rel, "label": label,
                                 "mtime": p.stat().st_mtime})  # fmt: skip
-        return out
+        order = [rel for rel, _ in NOTES]  # the rig config first, wherever it lives
+        return sorted(out, key=lambda n: order.index(n["path"]))
 
     def calibrations(self) -> list[dict[str, Any]]:
         r = self.roots.get("calibration")

@@ -488,7 +488,9 @@ def test_the_assistant_answers_only_the_window_that_asked(tmp_path: Path, monkey
                                          "focus": {"message": "boom"}}))  # fmt: skip
             done = await until(b, lambda d: d["type"] == "assist" and d["kind"] == "done")
             assert done["stopped"] is False
-            ctx = studio.context("overview", {"message": "boom"})
+            await b.send_str(json.dumps({"cmd": "assist_context", "page": "overview",
+                                         "focus": {"message": "boom"}}))  # fmt: skip
+            ctx = (await until(b, lambda d: d["type"] == "assist_context"))["text"]
             assert '"IDENTIFIED"' in ctx and '"boom"' in ctx and "t0k" not in ctx
             assert '"robot-config.yaml"' not in ctx  # files are read on demand, not pushed
             with pytest.raises(AssertionError):  # the other window heard nothing
@@ -497,6 +499,42 @@ def test_the_assistant_answers_only_the_window_that_asked(tmp_path: Path, monkey
             await b.close()
             await asyncio.wait_for(proc.wait(), 5)  # closing the window ends its Claude process
             await a.close()
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+def test_checks_run_from_any_window_and_reach_the_assistant(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PHI_STUDIO_CLAUDE", f"{FAKE_CLI} --signed-out")
+
+    async def go() -> None:
+        studio, server, session = await started_with_code(tmp_path)
+        try:
+            a = await ws(session, server.port)
+            b = await ws(session, server.port)  # view only
+            await until(b, lambda d: d["type"] == "hello" and not d["control"])
+            await b.send_str(json.dumps({"cmd": "checks_run"}))
+            first = await until(b, lambda d: d["type"] == "checks")
+            before = {r["id"]: r for r in first["results"]}
+            assert len(before) == 18 and before["arms_answer"]["status"] == "skip"
+            await a.send_str(json.dumps({"cmd": "connect"}))
+            await until(b, lambda d: d["type"] == "telemetry" and d["arms"], beat=False)
+            await b.send_str(json.dumps({"cmd": "checks_run"}))
+            got = await until(b, lambda d: d["type"] == "checks", timeout=10)
+            res = {r["id"]: r for r in got["results"]}
+            assert res["arms_answer"]["status"] == "pass" and res["faults"]["status"] == "pass"
+            assert res["assistant"]["status"] == "warn"
+            assert "claude auth login" in res["assistant"]["fix"]
+            assert res["rig_config"]["status"] == "warn"  # this config names a port but no id
+            assert res["ports_identity"]["status"] == "skip"  # mock ports are not real
+            await b.send_str(json.dumps({"cmd": "assist_context", "page": "checks"}))
+            ctx = json.loads((await until(b, lambda d: d["type"] == "assist_context"))["text"])
+            titles = [r["title"] for r in ctx["checks"]["not_passing"]]
+            assert "Claude assistant" in titles and "Rig config" in titles
+            await a.close()
+            await b.close()
         finally:
             await session.close()
             await server.close()
