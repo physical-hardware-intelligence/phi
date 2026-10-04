@@ -82,6 +82,8 @@ class PolicyRun:
     limit_s: float
     t0: float
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])  # one per episode
+    # Wall clock, so an eval can refuse runs that started before it began.
+    started_at: float = field(default_factory=time.time)
     queue: deque[dict[str, dict[str, float]]] = field(default_factory=deque)
     step: int = 0
     episode_s: float = 0.0
@@ -93,7 +95,7 @@ class PolicyRun:
     def view(self) -> dict[str, Any]:
         ms = sorted(self.chunk_ms)
         return {"id": self.info.id, "name": self.info.name, "task": self.task,
-                "run_id": self.run_id,
+                "run_id": self.run_id, "started_at": self.started_at,
                 "limit_s": self.limit_s, "episode_s": round(self.episode_s, 2), "step": self.step,
                 "chunk": self.policy.chunk, "running": self.running, "ended": self.ended,
                 "chunk_ms": round(self.chunk_ms[-1], 3) if ms else 0.0,

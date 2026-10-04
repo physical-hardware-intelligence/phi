@@ -115,7 +115,12 @@ class EvalStore:
         return rec
 
     def mark(
-        self, outcome: Any, note: Any = "", duration_s: Any = None, run_id: Any = None
+        self,
+        outcome: Any,
+        note: Any = "",
+        duration_s: Any = None,
+        run_id: Any = None,
+        run_started_at: Any = None,
     ) -> dict[str, Any]:
         rec = self._need()
         if outcome not in OUTCOMES:
@@ -126,6 +131,10 @@ class EvalStore:
             raise EvalError("The episode duration must be a number of seconds.")
         if run_id is not None and (not isinstance(run_id, str) or len(run_id) > 64):
             raise EvalError("The run id must be short text.")
+        if run_started_at is not None and (
+            not is_finite_number(run_started_at) or run_started_at < rec["started_at"]
+        ):
+            raise EvalError("This run started before the eval. Run a new episode to judge.")
         if run_id is not None and any(e.get("run_id") == run_id for e in rec["episodes"]):
             raise EvalError("This run is already judged. Undo the last judgement to change it.")
         if len(rec["episodes"]) >= MAX_EPISODES:

@@ -134,3 +134,13 @@ def test_one_policy_run_is_judged_once(tmp_path: Path) -> None:
     s.undo()
     s.mark("success", run_id="b")  # undone, so it can be judged again
     assert s.current is not None and s.current["n"] == 2
+
+
+def test_a_run_from_before_the_eval_cannot_be_judged_in_it(tmp_path: Path) -> None:
+    # A policy run on the Run policy page, before the eval began, is not one of its episodes.
+    s = EvalStore(tmp_path, now=lambda: 1000.0)
+    begin(s)
+    with pytest.raises(EvalError, match="before the eval"):
+        s.mark("success", run_id="old", run_started_at=999.0)
+    s.mark("success", run_id="new", run_started_at=1000.5)
+    assert s.current is not None and s.current["n"] == 1

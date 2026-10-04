@@ -238,6 +238,7 @@ def test_a_policy_moves_the_followers_and_stops_at_its_time_limit() -> None:
     assert max(abs(mid[j] - start[j]) for j in JOINTS) > 10
     p = of(out, "telemetry")[-1]["policy"]
     assert p["running"] and p["task"] == "put the cube in the box" and p["limit_s"] == 5.0
+    assert p["started_at"] > 1e9  # wall clock, comparable with an eval's start
     assert set(p["action"]) == {"follower"} and p["chunk_ms"] >= 0
     run(w, clock, 3.0)
     s = of(out, "state")[-1]
