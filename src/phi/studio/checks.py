@@ -605,7 +605,7 @@ def check_arms_answer(inp: Inputs) -> dict[str, Any]:
     title = "Every arm answers"
     if why := _rig_skip(inp):
         return result("arms_answer", "Rig", title, "skip", why)
-    arms = inp.telemetry["arms"]
+    arms = (inp.telemetry or {})["arms"]  # _rig_skip passed, so telemetry has arms
     dead = [n for n, a in arms.items() if not a.get("online")]
     if dead:
         return result(
@@ -792,9 +792,8 @@ def check_leader_torque(inp: Inputs) -> dict[str, Any]:
         return result("leader_torque", "Rig", title, "skip", why)
     if (inp.state or {}).get("state") == "CALIBRATING":
         return result("leader_torque", "Rig", title, "skip", "Calibration is in progress.")
-    held = [
-        n for n, a in inp.telemetry["arms"].items() if a.get("role") == "leader" and a.get("torque")
-    ]
+    arms = (inp.telemetry or {})["arms"]  # _rig_skip passed, so telemetry has arms
+    held = [n for n, a in arms.items() if a.get("role") == "leader" and a.get("torque")]
     if held:
         return result(
             "leader_torque",
@@ -888,8 +887,9 @@ def check_ui_build(inp: Inputs) -> dict[str, Any]:
             "Run make studio-web.",
         )
     built = index.stat().st_mtime
-    src = inp.code_root / "studio" / "web" / "src" if inp.code_root else None
-    if src is None or not src.is_dir():
+    root = inp.code_root
+    src = root / "studio" / "web" / "src" if root else None
+    if root is None or src is None or not src.is_dir():
         return result(
             "ui_build",
             "Studio",
@@ -899,7 +899,7 @@ def check_ui_build(inp: Inputs) -> dict[str, Any]:
         )
     newest = max(src.rglob("*"), key=lambda p: p.stat().st_mtime if p.is_file() else 0.0)
     if newest.stat().st_mtime > built + 1:
-        rel = newest.relative_to(inp.code_root).as_posix()
+        rel = newest.relative_to(root).as_posix()
         return result(
             "ui_build",
             "Studio",

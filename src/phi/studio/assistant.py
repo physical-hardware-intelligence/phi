@@ -334,7 +334,8 @@ class Conversation:
                     self.answer += block.get("text", "")
                     self._send("delta", text=block.get("text", ""))
         elif kind == "result":
-            text = ev.get("result") if isinstance(ev.get("result"), str) else ""
+            res = ev.get("result")
+            text = res if isinstance(res, str) else ""
             if not self.busy:
                 return
             echoed = bool(text.strip()) and self.answer.strip() == text.strip()

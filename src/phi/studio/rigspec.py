@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -256,7 +257,7 @@ def _usable(cam: dict[str, Any]) -> bool:
     return cam.get("type") == "opencv" and idx not in (None, "", "TBD")
 
 
-def _cmd(id_: str, title: str, why: str, tool: str, args: list[str] = ()) -> dict[str, str]:
+def _cmd(id_: str, title: str, why: str, tool: str, args: Sequence[str] = ()) -> dict[str, str]:
     return {"id": id_, "title": title, "why": why,
             "cmd": " ".join([tool, *(shlex.quote(a) for a in args)])}  # fmt: skip
 

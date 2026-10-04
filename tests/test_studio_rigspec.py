@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import shlex
 from pathlib import Path
 
@@ -117,7 +118,11 @@ def test_placeholder_cameras_stay_out_of_commands():
 
 # -- against LeRobot itself ----------------------------------------------------------------------
 
-lerobot = pytest.importorskip("lerobot")
+# WHY a mark, not a module-level importorskip: that would skip the parse tests above too
+# wherever LeRobot is not installed (CI installs only phi's own extras).
+needs_lerobot = pytest.mark.skipif(
+    importlib.util.find_spec("lerobot") is None, reason="LeRobot is not installed"
+)
 
 
 def _parse_cli(cmd: str):
@@ -138,6 +143,7 @@ def _parse_cli(cmd: str):
     return draccus.parse(config_class=cls, args=args)
 
 
+@needs_lerobot
 @pytest.mark.parametrize("text", [SINGLE, BIMANUAL], ids=["single", "bimanual"])
 def test_every_generated_command_parses_with_lerobots_own_cli_config(text):
     from lerobot.scripts.lerobot_setup_motors import COMPATIBLE_DEVICES
@@ -150,6 +156,7 @@ def test_every_generated_command_parses_with_lerobots_own_cli_config(text):
             assert cfg.device.type in COMPATIBLE_DEVICES
 
 
+@needs_lerobot
 @pytest.mark.parametrize("text", [SINGLE, BIMANUAL], ids=["single", "bimanual"])
 def test_ids_paths_and_features_match_lerobots_robot_objects(text, tmp_path, monkeypatch):
     import lerobot.robots.robot as robot_mod
