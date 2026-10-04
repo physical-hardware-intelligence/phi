@@ -280,7 +280,8 @@ class Studio:
                 e.begin(msg.get("policy"), msg.get("task", ""), msg.get("planned"),
                         msg.get("limit_s"))  # fmt: skip
             elif cmd == "eval_mark":
-                e.mark(msg.get("outcome"), msg.get("note", ""), msg.get("duration_s"))
+                e.mark(msg.get("outcome"), msg.get("note", ""), msg.get("duration_s"),
+                       msg.get("run_id"))  # fmt: skip
             elif cmd == "eval_undo":
                 e.undo()
             else:

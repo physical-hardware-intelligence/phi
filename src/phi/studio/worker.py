@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -80,6 +81,7 @@ class PolicyRun:
     task: str
     limit_s: float
     t0: float
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])  # one per episode
     queue: deque[dict[str, dict[str, float]]] = field(default_factory=deque)
     step: int = 0
     episode_s: float = 0.0
@@ -91,6 +93,7 @@ class PolicyRun:
     def view(self) -> dict[str, Any]:
         ms = sorted(self.chunk_ms)
         return {"id": self.info.id, "name": self.info.name, "task": self.task,
+                "run_id": self.run_id,
                 "limit_s": self.limit_s, "episode_s": round(self.episode_s, 2), "step": self.step,
                 "chunk": self.policy.chunk, "running": self.running, "ended": self.ended,
                 "chunk_ms": round(self.chunk_ms[-1], 3) if ms else 0.0,
@@ -429,7 +432,8 @@ class RigWorker:
     def _cmd_inject(self, msg: dict[str, Any]) -> None:
         """Mock rig only: inject a fault so the UI's error paths can be exercised."""
         target = next((a for a in self.arms if a.name == msg.get("arm")), None)
-        kinds = {"overload", "overheat", "voltage", "unplug", "replug", "clear", "swap", "hand"}
+        kinds = {"overload", "overheat", "voltage", "unplug", "replug", "clear", "swap", "hand",
+                 "still"}  # fmt: skip
         if target is None or not hasattr(target, "inject"):
             self.error("fault injection works only on the mock rig")
             return

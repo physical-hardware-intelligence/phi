@@ -273,11 +273,13 @@ def test_a_second_episode_starts_after_resume_from_step_zero() -> None:
     assert w.session.state.name == "STOPPED"
     start_policy(w, limit_s=1.0)  # must resume first
     assert w.session.state.name == "STOPPED"
+    first = of(out, "telemetry")[-1]["policy"]["run_id"]
     w.handle({"cmd": "resume"})
     start_policy(w, limit_s=1.0)
     w.tick()
     p = of(out, "telemetry")[-1]["policy"]
     assert p["running"] and p["step"] <= 1
+    assert p["run_id"] and p["run_id"] != first  # each episode is judged under its own id
 
 
 def test_user_stop_ends_the_episode_and_names_the_reason() -> None:

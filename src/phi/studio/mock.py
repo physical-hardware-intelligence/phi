@@ -103,8 +103,8 @@ class MockArm:
             self._cal = self._own_cal  # replugged into the right port
         elif kind == "clear":
             self.faults.clear()
-        elif kind == "hand":
-            self.hand = not self.hand
+        elif kind in ("hand", "still"):
+            self.hand = kind == "hand"
         else:
             assert joint in JOINTS, f"joint required for {kind}"
             self.faults[joint] = self.faults.get(joint, 0) | _FAULT_BIT[kind]

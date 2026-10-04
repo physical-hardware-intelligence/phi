@@ -51,12 +51,12 @@ def test_wilson_of_no_episodes_is_the_whole_range() -> None:
 def test_every_judgement_is_on_disk_before_the_call_returns(tmp_path: Path) -> None:
     store = EvalStore(tmp_path)
     rec = store.begin(policy="mock-reach", task="put the cube in the box", planned=3, limit_s=20)
-    store.mark("success", note="clean grasp", duration_s=12.5)
+    store.mark("success", note="clean grasp", duration_s=12.5, run_id="r1")
     store.mark("failure", note="dropped it")
     on_disk = json.loads((tmp_path / "evals" / f"{rec['id']}.json").read_text())
     assert [e["outcome"] for e in on_disk["episodes"]] == ["success", "failure"]
     assert on_disk["episodes"][0] == {"n": 1, "outcome": "success", "note": "clean grasp",
-                                      "duration_s": 12.5,
+                                      "duration_s": 12.5, "run_id": "r1",
                                       "at": on_disk["episodes"][0]["at"]}  # fmt: skip
     assert on_disk["successes"] == 1 and on_disk["n"] == 2 and on_disk["rate"] == 0.5
     assert on_disk["ci95"] == pytest.approx(list(wilson(1, 2)))
@@ -121,3 +121,16 @@ def test_a_corrupt_record_is_skipped_not_fatal(tmp_path: Path) -> None:
     (tmp_path / "evals" / "bad.json").write_text("{not json")
     s = EvalStore(tmp_path)
     assert s.list() == [] and s.current is None
+
+
+def test_one_policy_run_is_judged_once(tmp_path: Path) -> None:
+    # A double click or a second window must not count one episode twice.
+    s = EvalStore(tmp_path)
+    begin(s)
+    s.mark("success", run_id="a")
+    with pytest.raises(EvalError, match="already judged"):
+        s.mark("failure", run_id="a")
+    s.mark("failure", run_id="b")
+    s.undo()
+    s.mark("success", run_id="b")  # undone, so it can be judged again
+    assert s.current is not None and s.current["n"] == 2

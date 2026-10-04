@@ -114,7 +114,9 @@ class EvalStore:
         self.current = rec
         return rec
 
-    def mark(self, outcome: Any, note: Any = "", duration_s: Any = None) -> dict[str, Any]:
+    def mark(
+        self, outcome: Any, note: Any = "", duration_s: Any = None, run_id: Any = None
+    ) -> dict[str, Any]:
         rec = self._need()
         if outcome not in OUTCOMES:
             raise EvalError("The outcome must be success or failure.")
@@ -122,10 +124,15 @@ class EvalStore:
             raise EvalError(f"A note must be text of at most {MAX_NOTE} characters.")
         if duration_s is not None and (not is_finite_number(duration_s) or duration_s < 0):
             raise EvalError("The episode duration must be a number of seconds.")
+        if run_id is not None and (not isinstance(run_id, str) or len(run_id) > 64):
+            raise EvalError("The run id must be short text.")
+        if run_id is not None and any(e.get("run_id") == run_id for e in rec["episodes"]):
+            raise EvalError("This run is already judged. Undo the last judgement to change it.")
         if len(rec["episodes"]) >= MAX_EPISODES:
             raise EvalError(f"An eval holds at most {MAX_EPISODES} episodes.")
         rec["episodes"].append({"n": len(rec["episodes"]) + 1, "outcome": outcome, "note": note,
-                                "duration_s": duration_s, "at": self.now()})  # fmt: skip
+                                "duration_s": duration_s, "run_id": run_id,
+                                "at": self.now()})  # fmt: skip
         self._save(_summarise(rec))
         return rec
 

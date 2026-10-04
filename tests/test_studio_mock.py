@@ -114,3 +114,14 @@ def test_written_calibration_is_what_the_registers_read() -> None:
     assert fingerprint_distance(arm.read_calibration(), other).exact
     arm.inject("replug")
     assert fingerprint_distance(arm.read_calibration(), other).exact  # it is now the arm's own
+
+
+def test_a_hand_lets_go() -> None:
+    clock = FakeClock()
+    arm = MockArm("f", "follower", clock=clock)
+    arm.inject("hand")
+    clock.advance(1.0)
+    arm.inject("still")
+    a = arm.read_positions()
+    clock.advance(1.0)
+    assert arm.read_positions() == a
