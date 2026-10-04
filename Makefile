@@ -58,5 +58,10 @@ eval:      ; @echo "See docs/evaluation/README.md (lerobot-rollout)"
 studio-web:  ## Build the Studio UI into src/phi/studio/static
 	cd studio/web && npm ci && npm run build
 
-studio:  ## Run Phi Studio on the mock rig (no arm needed)
-	conda run -n phi --no-capture-output phi studio --mock
+# WHY python -m with PYTHONPATH=src: the phi env's editable install points at the main checkout,
+# so a bare `phi` in a worktree or on a branch runs main's code, not this checkout's.
+studio: src/phi/studio/static/index.html  ## Run Phi Studio on the mock rig (no arm needed)
+	PYTHONPATH=src PYTHONNOUSERSITE=1 conda run -n phi --no-capture-output python -m phi.cli studio --mock $(STUDIO_ARGS)
+
+src/phi/studio/static/index.html:  # the built UI is not committed; build it once on first run
+	$(MAKE) studio-web

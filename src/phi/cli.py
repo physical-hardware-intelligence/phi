@@ -35,9 +35,13 @@ def studio(
     if not mock:
         typer.echo("The hardware backend is not built yet. Run with --mock for now.", err=True)
         raise typer.Exit(1)
-    from phi.studio.server import serve
+    from phi.studio.server import PortInUse, serve
 
-    serve({"kind": "mock", "pairs": pairs}, port=port, open_browser=browser)
+    try:
+        serve({"kind": "mock", "pairs": pairs}, port=port, open_browser=browser)
+    except PortInUse as e:
+        typer.echo(f"{e} Close it, or run with --port {e.port + 1}.", err=True)
+        raise typer.Exit(1) from None
 
 
 if __name__ == "__main__":

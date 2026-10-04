@@ -19,6 +19,7 @@ import json
 import multiprocessing as mp
 import os
 import secrets
+import socket
 import struct
 import threading
 from pathlib import Path
@@ -241,7 +242,27 @@ class Studio:
         self.to_worker({k: v for k, v in msg.items() if isinstance(k, str)})
 
 
+class PortInUse(RuntimeError):
+    def __init__(self, port: int) -> None:
+        super().__init__(f"Port {port} is in use, probably by another Studio.")
+        self.port = port
+
+
+def port_free(port: int) -> bool:
+    """Whether Studio could bind 127.0.0.1:port. Same SO_REUSEADDR setting as aiohttp, so a port
+    in TIME_WAIT after a recent Studio counts as free."""
+    with socket.socket() as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
 def serve(spec: dict[str, Any], port: int = 8765, open_browser: bool = True) -> None:
+    if not port_free(port):  # before printing a URL or opening a browser at the wrong server
+        raise PortInUse(port)
     # WHY an env override: a fixed token lets a dev preview reload with the same URL.
     # The default is a fresh random token per launch.
     studio = Studio(spec, port, token=os.environ.get("PHI_STUDIO_TOKEN") or None)
