@@ -32,9 +32,12 @@ def say(state: str, label: str, detail: str = "", fix: str = "") -> None:
 
 def check_python() -> None:
     v = sys.version_info
-    in_env = "envs" in sys.executable and sys.executable.endswith(("python", "python3", "python.exe"))
+    in_env = "envs" in sys.executable and sys.executable.endswith(
+        ("python", "python3", "python.exe")
+    )
     if v < (3, 12):
-        say(BAD, "python", f"{v.major}.{v.minor}", "pyproject requires >=3.12. Recreate the env: make install")
+        say(BAD, "python", f"{v.major}.{v.minor}",
+            "pyproject requires >=3.12. Recreate the env: make install")
     elif not in_env:
         say(WARN, "python", f"{v.major}.{v.minor}.{v.micro}  {sys.executable}",
             "Not obviously inside a conda env. If imports fail, a pyenv shim is ahead of\n"
@@ -49,7 +52,8 @@ def check_core() -> None:
             m = __import__(mod)
             got = getattr(m, "__version__", "?")
             if want and got != want:
-                say(WARN, mod, got, f"expected {want}. Mac and CUDA envs must match or checkpoints will not load.")
+                say(WARN, mod, got, f"expected {want}. Mac and CUDA envs must match "
+                    "or checkpoints will not load.")
             else:
                 say(OK, mod, got)
         except ImportError as e:
@@ -95,7 +99,8 @@ def check_cameras(indices: list[int]) -> None:
             fix = ("macOS blocks camera access per-app. System Settings > Privacy & Security >\n"
                    "Camera, enable your terminal, then FULLY QUIT and reopen it.")
         elif platform.system() == "Windows":
-            fix = ("Settings > Privacy & security > Camera > 'Let desktop apps access your camera'.\n"
+            fix = ("Settings > Privacy & security > Camera > "
+                   "'Let desktop apps access your camera'.\n"
                    "If a window opens but is black, something imported cv2 before\n"
                    "phi.utils.camera_backend, so the MSMF workaround never applied.")
         else:
@@ -143,12 +148,15 @@ def check_ports_file(repo: Path) -> None:
 
 def check_calibration(repo: Path) -> None:
     canon = repo / "configs/calibration/robots/so_follower/phi_follower.json"
-    active = Path.home() / ".cache/huggingface/lerobot/calibration/robots/so_follower/phi_follower.json"
+    active = (
+        Path.home() / ".cache/huggingface/lerobot/calibration/robots/so_follower/phi_follower.json"
+    )
     if not canon.exists():
         say(WARN, "calibration", "committed file missing from the repo")
     elif not active.exists():
         say(WARN, "calibration", "canonical frame not installed",
-            f"cp {canon.relative_to(repo)} \\\n   ~/.cache/huggingface/lerobot/calibration/robots/so_follower/")
+            f"cp {canon.relative_to(repo)} \\\n"
+            "   ~/.cache/huggingface/lerobot/calibration/robots/so_follower/")
     elif canon.read_bytes() == active.read_bytes():
         say(OK, "calibration", "matches the committed phi_follower")
     else:
@@ -167,7 +175,9 @@ def check_hf() -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--cameras", type=int, nargs="*", default=[0, 1, 2, 3])
     args = ap.parse_args()
 

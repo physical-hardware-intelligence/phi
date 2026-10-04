@@ -351,7 +351,9 @@ def main() -> None:
                         "which defeats the point of staging mode)")
     p.add_argument("--robot-id", default="phi_follower")
     p.add_argument("--fps", type=float, default=None, help="default: the dataset's fps")
-    p.add_argument("--max-step-deg", type=float, default=15.0, help="per-tick rate limit; 0 disables")
+    p.add_argument(
+        "--max-step-deg", type=float, default=15.0, help="per-tick rate limit; 0 disables"
+    )
     p.add_argument("--settle-s", type=float, default=0.5,
                    help="seconds excluded from the error summary; smaller than the old "
                         "default because the start pose is now reached before timing starts")

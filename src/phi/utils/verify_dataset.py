@@ -5,7 +5,7 @@ with the data, is every referenced video file actually present, and did the came
 pipeline ever drop a frame.
 
     python -m phi.utils.verify_dataset ~/.cache/huggingface/lerobot/<user>/<dataset>
-    python -m phi.utils.verify_dataset <root> --split 59     # per-block stats either side of an index
+    python -m phi.utils.verify_dataset <root> --split 59  # per-block stats either side of an index
 
 Exit code 0 = safe, 1 = failures found. Run it before `hf upload` and after any
 `lerobot-edit-dataset` operation, which rewrites chunk files.
@@ -109,13 +109,18 @@ def verify(root: str, split: int | None = None) -> int:
             fail.append(f"{cam}: referenced video files missing {sorted(refs - disk)}")
         if disk - refs:
             line += f"  ⚠️ ORPHAN {sorted(disk - refs)}"
-            warn.append(f"{cam}: video files on disk that no episode references: {sorted(disk - refs)}")
+            warn.append(
+                f"{cam}: video files on disk that no episode references: {sorted(disk - refs)}"
+            )
         print(line)
         # timestamps inside one video file must increase with episode order
         for ch, fl in sorted(refs):
             sel = [
                 j for j in range(n_ep)
-                if (meta[f"videos/{cam}/chunk_index"][j], meta[f"videos/{cam}/file_index"][j]) == (ch, fl)
+                if (
+                    meta[f"videos/{cam}/chunk_index"][j],
+                    meta[f"videos/{cam}/file_index"][j],
+                ) == (ch, fl)
             ]
             froms = [meta[f"videos/{cam}/from_timestamp"][j] for j in sel]
             if froms != sorted(froms):
@@ -133,7 +138,8 @@ def verify(root: str, split: int | None = None) -> int:
           f"codebase {info.get('codebase_version')}")
     print(f"lengths  min {lengths.min()} max {lengths.max()} mean {lengths.mean():.0f} frames "
           f"({lengths.mean() / fps:.1f} s)")
-    print(f"timing   episodes with any frame later than 1.5x interval: {len(late_eps)} {late_eps[:12]}")
+    print("timing   episodes with any frame later than 1.5x interval: "
+          f"{len(late_eps)} {late_eps[:12]}")
     if split is not None and 0 < split < n_ep:
         a, b = lengths[:split], lengths[split:]
         print(f"block A  ep 0-{split - 1:<4} frames {a.sum():>6}  mean {a.mean() / fps:.1f} s")
@@ -150,7 +156,9 @@ def verify(root: str, split: int | None = None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("root", help="dataset directory (the one containing meta/, data/, videos/)")
     ap.add_argument("--split", type=int, default=None,
                     help="episode index where a second recording block starts, for per-block stats")

@@ -138,12 +138,18 @@ def audit(eps: dict[int, np.ndarray], lead_tol: float, left_max_ep: int) -> pd.D
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--repo-id", default="BrutalCaesar/phi_so101_8bin_v1")
     p.add_argument("--snapshot", type=Path, default=None, help="override the cache lookup")
     p.add_argument("--out", type=Path, default=Path("deadtime_per_episode.csv"))
-    p.add_argument("--lead-tol", type=float, default=LEAD_TOL, help="degrees of departure (default 1.0)")
-    p.add_argument("--left-max-ep", type=int, default=58, help="last episode of the left-side block")
+    p.add_argument(
+        "--lead-tol", type=float, default=LEAD_TOL, help="degrees of departure (default 1.0)"
+    )
+    p.add_argument(
+        "--left-max-ep", type=int, default=58, help="last episode of the left-side block"
+    )
     p.add_argument("--expect-episodes", type=int, default=119, help="0 to disable the guard")
     args = p.parse_args()
 
@@ -166,11 +172,19 @@ def main() -> None:
     total, dropped = int(r.frames.sum()), int(r.DROP.sum())
     print(f"{len(r)} episodes, {total} frames  ->  {args.out}\n")
     print("=== DROP (opening pause only) ===")
-    print(r.groupby("side")[["DROP", "drop_s", "drop_pct"]].agg(["mean", "median", "min", "max"]).round(1))
+    print(
+        r.groupby("side")[["DROP", "drop_s", "drop_pct"]]
+        .agg(["mean", "median", "min", "max"])
+        .round(1)
+    )
     print(f"\ntotal dropped {dropped} of {total} = {100 * dropped / total:.1f}%")
 
     print("\n=== KEPT: trailing + interior ===")
-    print(r.groupby("side")[["trail_s", "interior_max", "interior_runs"]].agg(["mean", "median", "max"]).round(1))
+    print(
+        r.groupby("side")[["trail_s", "interior_max", "interior_runs"]]
+        .agg(["mean", "median", "max"])
+        .round(1)
+    )
     print(f"episodes with an interior pause >= 0.5s: {(r.interior_runs > 0).sum()} of {len(r)}")
     print(f"episodes with a trailing pause >= 0.5s : {(r.trail >= WIN).sum()} of {len(r)}")
 

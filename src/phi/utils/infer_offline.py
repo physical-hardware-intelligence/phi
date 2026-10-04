@@ -69,11 +69,14 @@ import numpy as np
 import torch
 
 JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
-HOLDOUT = [*range(0, 5), *range(20, 25), *range(45, 50), *range(65, 70), *range(90, 95), *range(110, 115)]
+HOLDOUT = [*range(0, 5), *range(20, 25), *range(45, 50),
+           *range(65, 70), *range(90, 95), *range(110, 115)]
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--model", required=True)
     p.add_argument("--revision", default=None, help="HF branch/tag, e.g. step-80000")
     p.add_argument("--dataset", default="BrutalCaesar/phi_so101_cubes_cylinder_recovery_v1")
@@ -90,7 +93,11 @@ def main() -> None:
         print(f"  ⚠️  episode {args.episode} is NOT in the holdout — it was trained on, "
               f"so these numbers flatter the model.\n")
 
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    device = (
+        "cuda" if torch.cuda.is_available()
+        else "mps" if torch.backends.mps.is_available()
+        else "cpu"
+    )
     ds = LeRobotDataset(args.dataset, episodes=[args.episode])
     n = ds.num_frames if args.frames == 0 else min(args.frames, ds.num_frames)
 
@@ -127,7 +134,8 @@ def main() -> None:
     q, r = run(False), run(True)
 
     print(f"  |commanded - human|, mean over the episode")
-    print(f"  {'joint':16s} {'queue (the robot)':>20s} {'fresh (1-step)':>18s} {'staleness cost':>16s}")
+    print(f"  {'joint':16s} {'queue (the robot)':>20s} "
+          f"{'fresh (1-step)':>18s} {'staleness cost':>16s}")
     print("  " + "-" * 72)
     for j, name in enumerate(JOINTS):
         unit = "" if name == "gripper" else "°"
@@ -142,7 +150,8 @@ def main() -> None:
     for lo in range(0, step, bucket):
         idx = [i for i in range(n) if lo <= (i % step) < lo + bucket]
         if idx:
-            print(f"     steps {lo:3d}-{min(lo + bucket, step) - 1:3d} after a re-plan : {pos[idx].mean():6.2f}°")
+            print(f"     steps {lo:3d}-{min(lo + bucket, step) - 1:3d} after a re-plan : "
+                  f"{pos[idx].mean():6.2f}°")
     print("\n  Rising with distance from the re-plan = open-loop drift. Try "
           "`watch_rollouts --n-action-steps 15`.\n")
 

@@ -55,7 +55,11 @@ def _load(checkpoint: Path, device: str):
     from lerobot.datasets.factory import make_train_eval_datasets
     from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 
-    pm = checkpoint / "pretrained_model" if (checkpoint / "pretrained_model").is_dir() else checkpoint
+    pm = (
+        checkpoint / "pretrained_model"
+        if (checkpoint / "pretrained_model").is_dir()
+        else checkpoint
+    )
     with open(pm / "train_config.json") as f:
         cfg = draccus.load(TrainPipelineConfig, f)
 
@@ -116,7 +120,9 @@ def loss_by_horizon(checkpoint: Path, horizon: int, batch_size: int, device: str
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--checkpoints", nargs="+", type=Path, required=True)
     ap.add_argument("--horizon", type=int, default=50,
                     help="compare over the first N predicted steps (default: 50)")
@@ -141,9 +147,15 @@ def main() -> None:
 
     width = max(len(label(c)) for c, *_ in summary) + 2
     print(f"\nL1 on the SAME first {args.horizon} predicted steps (lower is better)\n")
-    print(f"  {'checkpoint':<{width}} {'chunk':>6} {'mean L1':>10} {'step 0':>9} {'step ' + str(args.horizon - 1):>9}")
+    print(
+        f"  {'checkpoint':<{width}} {'chunk':>6} {'mean L1':>10} {'step 0':>9} "
+        f"{'step ' + str(args.horizon - 1):>9}"
+    )
     for ckpt, chunk, mean, curve in summary:
-        print(f"  {label(ckpt):<{width}} {chunk:>6} {mean:>10.5f} {curve[0]:>9.5f} {curve[-1]:>9.5f}")
+        print(
+            f"  {label(ckpt):<{width}} {chunk:>6} {mean:>10.5f} "
+            f"{curve[0]:>9.5f} {curve[-1]:>9.5f}"
+        )
 
     if len(summary) == 2:
         (a, ca, ma, _), (b, cb, mb, _) = summary

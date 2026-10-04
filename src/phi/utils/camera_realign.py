@@ -220,7 +220,9 @@ def choose(dss: list[Dataset], want: str | None) -> Dataset:
             print_datasets(dss)
             raise SystemExit(f"no dataset matches '{want}'")
         print_datasets(dss)
-        raise SystemExit(f"'{want}' matches {len(hits)}: {[d.name for d in hits]} — be more specific")
+        raise SystemExit(
+            f"'{want}' matches {len(hits)}: {[d.name for d in hits]} — be more specific"
+        )
 
     if len(dss) == 1:
         return dss[0]
@@ -269,7 +271,9 @@ def resting_frame(ds: Dataset, episode: int, search: int) -> tuple[int, float]:
     return best, float(smooth[best - 1])
 
 
-def reference_frames(ds: Dataset, names: list[str], episode: int, frame: int) -> dict[str, np.ndarray]:
+def reference_frames(
+    ds: Dataset, names: list[str], episode: int, frame: int
+) -> dict[str, np.ndarray]:
     """Decode one recorded frame per requested camera -> uint8 RGB."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -299,7 +303,9 @@ def reference_frames(ds: Dataset, names: list[str], episode: int, frame: int) ->
     return out
 
 
-def offset(live_gray: np.ndarray, ref_gray: np.ndarray, window: np.ndarray) -> tuple[float, float, float]:
+def offset(
+    live_gray: np.ndarray, ref_gray: np.ndarray, window: np.ndarray
+) -> tuple[float, float, float]:
     """How far the live image sits from the reference, in pixels, sub-pixel.
 
     Phase correlation recovers TRANSLATION only — not rotation or scale — but
@@ -311,7 +317,9 @@ def offset(live_gray: np.ndarray, ref_gray: np.ndarray, window: np.ndarray) -> t
     return dx, dy, resp
 
 
-def annotate(tile: np.ndarray, name: str, dx: float, dy: float, resp: float, mad: float) -> np.ndarray:
+def annotate(
+    tile: np.ndarray, name: str, dx: float, dy: float, resp: float, mad: float
+) -> np.ndarray:
     ok = abs(dx) < ALIGNED_PX and abs(dy) < ALIGNED_PX
     colour = (0, 220, 0) if ok else (0, 165, 255)
     h = tile.shape[0]
@@ -322,7 +330,9 @@ def annotate(tile: np.ndarray, name: str, dx: float, dy: float, resp: float, mad
     # way moves the scene the other way, hence "pan the opposite way" below.
     label = "ALIGNED" if ok else f"move image  x {-dx:+.1f}  y {-dy:+.1f} px"
     cv2.putText(tile, label, (10, h - 34), FONT, 0.6, colour, 2)
-    cv2.putText(tile, f"mad {mad:5.1f}   conf {resp:.2f}", (10, h - 12), FONT, 0.5, (200, 200, 200), 1)
+    cv2.putText(
+        tile, f"mad {mad:5.1f}   conf {resp:.2f}", (10, h - 12), FONT, 0.5, (200, 200, 200), 1
+    )
     return tile
 
 
@@ -368,7 +378,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--frame", type=int, default=None,
                     help="reference frame; default = quietest frame found automatically")
     ap.add_argument("--search", type=int, default=90,
-                    help="how many opening frames to search for the resting pose (default 90 = 3 s)")
+                    help="how many opening frames to search for the resting pose "
+                    "(default 90 = 3 s)")
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--height", type=int, default=480)
     ap.add_argument("--max-window-width", type=int, default=1600)
@@ -461,7 +472,9 @@ def main(argv: list[str] | None = None) -> int:
                 grid = np.hstack(tiles)
                 scale = min(1.0, args.max_window_width / grid.shape[1])
                 if scale < 1.0:
-                    grid = cv2.resize(grid, (int(grid.shape[1] * scale), int(grid.shape[0] * scale)))
+                    grid = cv2.resize(
+                        grid, (int(grid.shape[1] * scale), int(grid.shape[0] * scale))
+                    )
                 cv2.putText(grid, MODE_NAMES[mode], (10, grid.shape[0] - 10), FONT, 0.6,
                             (255, 255, 255), 1)
                 cv2.imshow(win, cv2.cvtColor(grid, cv2.COLOR_RGB2BGR))

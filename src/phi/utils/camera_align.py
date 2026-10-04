@@ -97,7 +97,9 @@ def run_rerun(cams, args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("feeds", nargs="*", default=None,
                     help="camera indices, optionally named: 0 1 2  or  wrist=0 front=1 top=2")
     ap.add_argument("--width", type=int, default=640)
@@ -134,7 +136,8 @@ def main(argv: list[str] | None = None) -> int:
 
     win = "phi camera align  —  q to quit"
     print(f"showing {[n for n, _, _ in cams]} at {args.width}x{args.height} MJPG"
-          f"{'' if scale == 1.0 else f', displayed at {int(scale * 100)}%'} — press q or Esc to quit")
+          f"{'' if scale == 1.0 else f', displayed at {int(scale * 100)}%'}"
+          " — press q or Esc to quit")
     try:
         while True:
             tiles = []

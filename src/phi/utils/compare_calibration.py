@@ -244,7 +244,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Diff two SO-101 calibrations and report the disagreement in degrees.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Names are looked up under " + str(CAL_ROOT) + "; paths ending in .json are used as-is.",
+        epilog="Names are looked up under " + str(CAL_ROOT)
+        + "; paths ending in .json are used as-is.",
     )
     ap.add_argument("a", help="calibration id or path — the one the POLICY WAS TRAINED WITH")
     ap.add_argument("b", help="calibration id or path — the one it will RUN ON")
@@ -267,7 +268,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"A  {label_a:<24s} {pa}")
     print(f"B  {label_b:<24s} {pb}")
-    print(f"\n1 tick = {DEG_PER_TICK:.4f} deg   ·   end-effector reach assumed {args.reach:.0f} mm\n")
+    print(
+        f"\n1 tick = {DEG_PER_TICK:.4f} deg   ·   "
+        f"end-effector reach assumed {args.reach:.0f} mm\n"
+    )
 
     # ── 1. Is this even the same arm? ────────────────────────────────────────
     # Absolute stop positions are hardware. If they match, everything downstream
@@ -275,7 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 78)
     print("1. SAME ARM?   physical hard stops in absolute encoder ticks")
     print("=" * 78)
-    print(f"{'joint':14s} {'stop':>6s} {label_a[:9]:>10s} {label_b[:9]:>10s} {'diff':>7s} {'deg':>7s}")
+    print(
+        f"{'joint':14s} {'stop':>6s} {label_a[:9]:>10s} {label_b[:9]:>10s} "
+        f"{'diff':>7s} {'deg':>7s}"
+    )
     print("-" * 78)
 
     stop_diffs: list[float] = []
@@ -296,8 +303,10 @@ def main(argv: list[str] | None = None) -> int:
     same_arm = med <= SAME_ARM_TICKS
     print(f"\n  median disagreement: {med:.0f} ticks ({med * DEG_PER_TICK:.2f} deg)")
     if same_arm:
-        print(f"  -> SAME PHYSICAL ARM (or identically indexed builds). Under {SAME_ARM_TICKS} ticks is")
-        print("     just how hard each person leaned on a 3D-printed stop. Section 2 is meaningful.")
+        print("  -> SAME PHYSICAL ARM (or identically indexed builds). "
+              f"Under {SAME_ARM_TICKS} ticks is")
+        print("     just how hard each person leaned on a 3D-printed stop. "
+              "Section 2 is meaningful.")
     else:
         print("  -> ⚠️  DIFFERENT ARMS. Each servo horn sits on its own spline tooth, so these two")
         print("     files describe different absolute frames and SECTION 2 IS MEANINGLESS —")
@@ -331,7 +340,8 @@ def main(argv: list[str] | None = None) -> int:
 
         print("\n  Sign: B reads this many degrees HIGHER than A at the same physical pose, so a")
         print("  command from a policy trained on A lands that far off when executed on B.")
-        print(f"  'at gripper' converts the angle into displacement at a {args.reach:.0f} mm reach —")
+        print("  'at gripper' converts the angle into displacement at a "
+              f"{args.reach:.0f} mm reach —")
         print("  exact for shoulder_pan (it swings the whole arm), an upper bound for the joints")
         print("  further down the chain. wrist_roll is reported as ROLL because it spins the jaws")
         print("  about their own axis: it changes the angle of attack without moving the gripper.")
@@ -345,7 +355,10 @@ def main(argv: list[str] | None = None) -> int:
     b0, b1, bspan, _ = absolute(gb)
     print(f"  {label_a:<22s} closed {a0:6.0f}   open {a1:6.0f}   span {aspan:5d}")
     print(f"  {label_b:<22s} closed {b0:6.0f}   open {b1:6.0f}   span {bspan:5d}")
-    print(f"  span differs by {bspan - aspan:+d} ticks ({(bspan - aspan) / aspan * 100:+.1f}% gain)\n")
+    print(
+        f"  span differs by {bspan - aspan:+d} ticks "
+        f"({(bspan - aspan) / aspan * 100:+.1f}% gain)\n"
+    )
     print(f"  {'command':>9s} {'A -> tick':>11s} {'B -> tick':>11s} {'error':>9s}")
     grip_err = 0.0
     for n in (0, 25, 50, 75, 100):
@@ -380,25 +393,32 @@ def main(argv: list[str] | None = None) -> int:
             effect = effect_at_gripper(j, deg, args.reach)
             print(f"     {j:14s} {deg:+7.2f} deg  ({effect} at the gripper)  {verdict(deg)}")
             if is_full_turn(A[j]):
-                print("                    cause: full-turn joint, range hardcoded [0,4095], so the")
-                print("                    calibration POSE never cancels. Whoever pressed ENTER with")
-                print("                    the wrist at a different angle set a different zero.")
-                print("                    The jaws approach the object rotated by this much for the")
-                print("                    whole episode, and vision cannot servo a roll error away.")
+                print("                    "
+                      "cause: full-turn joint, range hardcoded [0,4095], so the")
+                print("                    "
+                      "calibration POSE never cancels. Whoever pressed ENTER with")
+                print("                    "
+                      "the wrist at a different angle set a different zero.")
+                print("                    "
+                      "The jaws approach the object rotated by this much for the")
+                print("                    "
+                      "whole episode, and vision cannot servo a roll error away.")
             else:
                 sa, sb = absolute(A[j])[2], absolute(B[j])[2]
                 print(f"                    cause: swept ranges differ by {sb - sa:+d} ticks "
                       f"({abs(sb - sa) * DEG_PER_TICK:.1f} deg), so the")
                 print("                    midpoint between the stops moved by half of it.")
         if grip_err >= 25:
-            print(f"     {'gripper':14s} {grip_err:7.0f} ticks of travel error — check grasps specifically")
+            print(f"     {'gripper':14s} {grip_err:7.0f} ticks of travel error "
+                  "— check grasps specifically")
 
         print("\n  FIX, in order of preference:")
         print("    1. It is the SAME ARM, so just copy A's file onto B's machine. Every offset")
         print("       above goes to exactly ZERO — it reproduces the frame the policy trained in.")
         print("       This beats recalibrating, which only re-rolls the dice on wrist_roll.")
         print(f"         scp {pa} <them>:{pa.parent}/")
-        print(f"       Then connect once with --robot.id={pa.stem}; LeRobot writes it to the motors.")
+        print(f"       Then connect once with --robot.id={pa.stem}; "
+              "LeRobot writes it to the motors.")
         print("    2. Only if they must recalibrate, follow the protocol below.")
         print("    3. Either way, confirm with `lerobot-replay` on the target machine BEFORE you")
         print("       trust a rollout. If the replay lands off, calibration is still wrong.")

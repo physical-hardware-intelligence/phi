@@ -105,7 +105,9 @@ class DiffusionTransformerModel(DiffusionModel):
 
     def __init__(self, config, **backbone_kwargs) -> None:
         super().__init__(config)
-        global_cond_dim = self.unet.global_cond_dim if hasattr(self.unet, "global_cond_dim") else None
+        global_cond_dim = (
+            self.unet.global_cond_dim if hasattr(self.unet, "global_cond_dim") else None
+        )
         if global_cond_dim is None:
             # Recompute it the way DiffusionModel does, so we do not depend on a private attr.
             global_cond_dim = config.robot_state_feature.shape[0]

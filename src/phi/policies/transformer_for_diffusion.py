@@ -144,7 +144,11 @@ class TransformerForDiffusion(ModuleAttrMixin):
             # therefore, the upper triangle should be -inf and others (including diag) should be 0.
             sz = T
             mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-            mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+            mask = (
+                mask.float()
+                .masked_fill(mask == 0, float('-inf'))
+                .masked_fill(mask == 1, float(0.0))
+            )
             self.register_buffer("mask", mask)
             
             if time_as_cond and obs_as_cond:
@@ -171,7 +175,11 @@ class TransformerForDiffusion(ModuleAttrMixin):
                     window = min(t_idx, n_windows - 1)
                     n_visible = (window + 1) * n_patches
                     allowed[t_idx, 1:1 + n_visible] = True
-                mask = allowed.float().masked_fill(~allowed, float('-inf')).masked_fill(allowed, float(0.0))
+                mask = (
+                    allowed.float()
+                    .masked_fill(~allowed, float('-inf'))
+                    .masked_fill(allowed, float(0.0))
+                )
                 self.register_buffer('memory_mask', mask)
             else:
                 self.memory_mask = None
@@ -240,12 +248,14 @@ class TransformerForDiffusion(ModuleAttrMixin):
     def get_optim_groups(self, weight_decay: float=1e-3):
         """
         This long function is unfortunately doing something very simple and is being very defensive:
-        We are separating out all parameters of the model into two buckets: those that will experience
-        weight decay for regularization and those that won't (biases, and layernorm/embedding weights).
+        We are separating out all parameters of the model into two buckets: those that will
+        experience weight decay for regularization and those that won't (biases, and
+        layernorm/embedding weights).
         We are then returning the PyTorch optimizer object.
         """
 
-        # separate out all parameters to those that will and won't experience regularizing weight decay
+        # separate out all parameters to those that will and won't experience regularizing
+        # weight decay
         decay = set()
         no_decay = set()
         whitelist_weight_modules = (torch.nn.Linear, torch.nn.MultiheadAttention)
@@ -323,7 +333,8 @@ class TransformerForDiffusion(ModuleAttrMixin):
         # 1. time
         timesteps = timestep
         if not torch.is_tensor(timesteps):
-            # TODO: this requires sync between CPU and GPU. So try to pass timesteps as tensors if you can
+            # TODO: this requires sync between CPU and GPU. So try to pass timesteps as tensors
+            # if you can
             timesteps = torch.tensor([timesteps], dtype=torch.long, device=sample.device)
         elif torch.is_tensor(timesteps) and len(timesteps.shape) == 0:
             timesteps = timesteps[None].to(sample.device)

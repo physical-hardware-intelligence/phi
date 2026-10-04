@@ -237,8 +237,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nstalls by component: {dict(sorted(worst.items(), key=lambda x: -x[1]))}")
         print("\nReading it:")
         print("  motor bus dominates    -> serial retries. Suspect the USB cable/hub shared with")
-        print("                            the cameras, or bus contention. Try --no-cameras: if the")
-        print("                            bus is clean without them, it is contention, not the arm.")
+        print("                            "
+              "the cameras, or bus contention. Try --no-cameras: if the")
+        print("                            "
+              "bus is clean without them, it is contention, not the arm.")
         print("  one camera dominates   -> that camera is not delivering MJPG (check it fell back")
         print("                            to uncompressed YUYV) or is on a starved hub port.")
         print("  spread evenly          -> CPU or thermal throttling. Check the Mac is plugged in.")

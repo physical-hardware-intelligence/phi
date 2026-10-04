@@ -162,7 +162,8 @@ def check_calibration(robot_id: str, force: bool) -> None:
 
 def _fail(msg: str, force: bool) -> None:
     if force:
-        print(f"\n{BANNER}\n  FORCED PAST A GATE — do not report a number from this session\n  {msg}\n{BANNER}\n")
+        print(f"\n{BANNER}\n  FORCED PAST A GATE — do not report a number from this session\n"
+              f"  {msg}\n{BANNER}\n")
         return
     sys.exit(f"\n  REFUSING TO RUN: {msg}\n")
 
@@ -371,7 +372,9 @@ def build_config(args, cameras: dict[str, int | str]):
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--model", required=True, help="HF repo id or local checkpoint path")
     p.add_argument("--revision", default=None, help="HF branch/tag, e.g. step-80000")
     p.add_argument("--port", required=True, help="follower serial port (lerobot-find-port)")
@@ -435,7 +438,12 @@ def main() -> None:
     print(f"\n{BANNER}\n  THE ARM WILL MOVE ON ITS OWN. Keep a hand near the power.\n{BANNER}")
     try:
         for ep in range(1, args.episodes + 1):
-            if input(f"\n  [{ep}/{args.episodes}] stage the scene, then Enter (q to quit): ").strip().lower() == "q":
+            if (
+                input(f"\n  [{ep}/{args.episodes}] stage the scene, then Enter (q to quit): ")
+                .strip()
+                .lower()
+                == "q"
+            ):
                 break
 
             # Clear the action queue so episode N does not begin by executing

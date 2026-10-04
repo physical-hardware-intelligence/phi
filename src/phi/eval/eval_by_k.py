@@ -142,7 +142,11 @@ def evaluate(checkpoint: Path, buckets: list[int], device: str, max_batches: int
     from lerobot.policies.factory import get_policy_class, make_pre_post_processors
     import draccus
 
-    pm = checkpoint / "pretrained_model" if (checkpoint / "pretrained_model").is_dir() else checkpoint
+    pm = (
+        checkpoint / "pretrained_model"
+        if (checkpoint / "pretrained_model").is_dir()
+        else checkpoint
+    )
     cfg_path = pm / "train_config.json"
     if not cfg_path.is_file():
         raise SystemExit(f"no train_config.json under {pm}")
@@ -216,14 +220,18 @@ def evaluate(checkpoint: Path, buckets: list[int], device: str, max_batches: int
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--checkpoint", type=Path, help="a checkpoints/<step> dir (or its pretrained_model)")
+    p.add_argument(
+        "--checkpoint", type=Path, help="a checkpoints/<step> dir (or its pretrained_model)"
+    )
     p.add_argument("--sweep", type=Path, help="a run dir; scores several of its checkpoints")
     p.add_argument("--steps", default=None, help="with --sweep: comma list of steps, else all")
     p.add_argument("--buckets", default=DEFAULT_BUCKETS,
                    help=f"comma list of k values (default: {DEFAULT_BUCKETS})")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--max-batches", type=int, default=None, help="cap batches, for a smoke test")
-    p.add_argument("--seed", type=int, default=1000, help="seeds eps; keep FIXED across checkpoints")
+    p.add_argument(
+        "--seed", type=int, default=1000, help="seeds eps; keep FIXED across checkpoints"
+    )
     p.add_argument("--out", type=Path, default=None, help="write CSV here")
     args = p.parse_args()
 

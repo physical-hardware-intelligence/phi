@@ -179,8 +179,11 @@ def show_setup(refs: dict, caps: dict, ep: int, obj: str, cont: str,
             rec, live, dead = [], [], []
             for nm in names:
                 r = refs.get(nm)
-                rec.append(_label(cv2.resize(r, size).copy(), f"RECORDED {nm}", (0, 200, 255))
-                           if r is not None else _tile(f"{nm}: not in dataset", size, (0, 140, 255)))
+                rec.append(
+                    _label(cv2.resize(r, size).copy(), f"RECORDED {nm}", (0, 200, 255))
+                    if r is not None
+                    else _tile(f"{nm}: not in dataset", size, (0, 140, 255))
+                )
                 ok, frame = caps[nm].read()
                 if not ok or frame is None:
                     dead.append(nm)
@@ -198,13 +201,18 @@ def show_setup(refs: dict, caps: dict, ep: int, obj: str, cont: str,
                  else "SPACE = run rollout    s = skip    q = quit"),
             ]
             for i, t in enumerate(lines):
-                col = (0, 255, 255) if i == 0 else ((0, 0, 255) if dead and i == 2 else (220, 220, 220))
+                col = (
+                    (0, 255, 255) if i == 0
+                    else ((0, 0, 255) if dead and i == 2 else (220, 220, 220))
+                )
                 cv2.putText(banner, t, (12, 34 + i * 30), FONT, 0.62, col, 2 if i != 1 else 1)
 
             frame = np.vstack([banner, grid])
             scale = min(1.0, 1700 / frame.shape[1])
             if scale < 1.0:
-                frame = cv2.resize(frame, (int(frame.shape[1] * scale), int(frame.shape[0] * scale)))
+                frame = cv2.resize(
+                    frame, (int(frame.shape[1] * scale), int(frame.shape[0] * scale))
+                )
             cv2.imshow(win, frame)
 
             k = cv2.waitKey(30) & 0xFF
@@ -284,7 +292,10 @@ def ask_score() -> tuple[str, float, str, str, str] | None:
 
     # Which of the ~3 demonstrated grasp approaches the policy chose. Held-out L1
     # cannot see this, and an averaging policy tends to sit between approaches.
-    approach = input("  grasp approach [a/b/c, m=mixed/hedging, - = never grasped]: ").strip().lower() or "-"
+    approach = (
+        input("  grasp approach [a/b/c, m=mixed/hedging, - = never grasped]: ").strip().lower()
+        or "-"
+    )
     # The training data has leading dead time; the prediction is that policies
     # hesitate at episode start. Never checked until now.
     hes = ""
@@ -320,7 +331,10 @@ def report() -> int:
         mr = [r for r in rows if r["model"] == model]
         print(f"\n=== {model}")
         by_split = {}
-        for sp, label in (("train", "CONTROL (trained on)"), ("heldout", "HELD OUT (unseen positions)")):
+        for sp, label in (
+            ("train", "CONTROL (trained on)"),
+            ("heldout", "HELD OUT (unseen positions)"),
+        ):
             rs = [r for r in mr if r.get("split", "heldout") == sp]
             if rs:
                 n, sr, mp = agg(rs)
@@ -381,7 +395,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", help="HF id or local pretrained_model dir")
     ap.add_argument("--dataset", help="dataset name substring or index "
                                       "(list them with: python -m phi.utils.camera_realign --list)")
-    ap.add_argument("--episodes", help=f"comma list (default: {CONTROL_EPISODES} then {DEFAULT_EPISODES})")
+    ap.add_argument(
+        "--episodes", help=f"comma list (default: {CONTROL_EPISODES} then {DEFAULT_EPISODES})"
+    )
     ap.add_argument("--controls", type=int, default=len(CONTROL_EPISODES),
                     help="how many trained-on control episodes to run first (0 to skip)")
     ap.add_argument("--cameras", default="wrist=0,top=1,front=2")
