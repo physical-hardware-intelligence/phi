@@ -1,6 +1,7 @@
 import { Camera, CameraOff, Check, ChevronRight, CircleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { go, studio, useStudio, type Route, type Tone } from "../lib/studio";
+import { Notices } from "../components/Notices";
 
 type StepStatus = "done" | "next" | "blocked" | "open";
 interface Step { n: number; title: string; status: StepStatus; detail: string; action?: ReactNode }
@@ -63,6 +64,7 @@ export function Overview() {
   const steps = useSteps();
   return (
     <div className="page overview">
+      <Notices />
       <section className="panel workflow">
         <div className="panel-head">
           <div>
@@ -93,6 +95,7 @@ function RigHealth() {
   const identity = useStudio((s) => s.identity);
   const tele = useStudio((s) => s.telemetry);
   const cams = useStudio((s) => s.cameras);
+  const live = useStudio((s) => s.link === "open");
   const state = useStudio((s) => s.state?.state);
 
   return (
@@ -144,10 +147,10 @@ function RigHealth() {
           <hr className="divider" />
           <ul className="cam-list">
             {Object.entries(cams).map(([k, c]) => (
-              <li key={k} className={c.online ? "" : "text-danger"}>
-                {c.online ? <Camera aria-hidden /> : <CameraOff aria-hidden />}
+              <li key={k} className={!live ? "" : c.online ? "" : "text-danger"}>
+                {c.online && live ? <Camera aria-hidden /> : <CameraOff aria-hidden />}
                 <span>{k}</span>
-                <span className="faint">{c.online ? "streaming" : c.message ?? "no signal"}</span>
+                <span className="faint">{!live ? "unknown while offline" : c.online ? "streaming" : c.message ?? "no signal"}</span>
               </li>
             ))}
           </ul>

@@ -41,6 +41,11 @@ const components: Components = {
   li: ({ children }) => <li>{withLinks(children)}</li>,
   td: ({ children }) => <td>{withLinks(children)}</td>,
   a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>,
+  // WHY no <img>: the browser fetches an image the moment it renders, so a prompt injection in a file
+  // Claude read could send rig details to any host with no click. A link waits for one.
+  img: ({ src, alt }) => (typeof src === "string" && src
+    ? <a href={src} target="_blank" rel="noreferrer noopener">{alt || "Image"} (image, not loaded)</a>
+    : <>{alt}</>),
   pre: ({ children }) => <pre className="md-pre">{children}</pre>,
   code: ({ className, children }) => {
     const text = String(Children.toArray(children).join(""));

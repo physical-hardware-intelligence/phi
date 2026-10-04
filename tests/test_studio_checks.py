@@ -58,7 +58,13 @@ def mac(tmp: Path, config: str | None = CONFIG, cals: dict | None = None) -> Inp
     for name, body in (
         cals if cals is not None else {"phi_follower": good_cal(), "phi_leader": good_cal()}
     ).items():
-        p = cal / "robots" / "so_follower" / f"{name}.json"
+        # LeRobot's layout: calibration/<robots|teleoperators>/<class name>/<id>.json
+        sub = (
+            ("teleoperators", "so_leader")
+            if name.endswith("_leader")
+            else ("robots", "so_follower")
+        )
+        p = cal.joinpath(*sub, f"{name}.json")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(body))
     return Inputs(
@@ -87,9 +93,9 @@ def by_id(inp: Inputs) -> dict[str, dict]:
 # -- this Mac ----------------------------------------------------------------------
 def test_rig_config_arms_and_port_lines() -> None:
     arms = parse_rig_config(CONFIG)
-    assert [(a.section, a.id, a.port, a.line) for a in arms] == [
-        ("robot", "phi_follower", "/dev/tty.usbmodemF", 6),
-        ("teleop", "phi_leader", "/dev/tty.usbmodemL", 11),
+    assert [(a.section, a.id, a.port, a.line, a.kind) for a in arms] == [
+        ("robot", "phi_follower", "/dev/tty.usbmodemF", 6, "robots"),
+        ("teleop", "phi_leader", "/dev/tty.usbmodemL", 11, "teleoperators"),
     ]
 
 
@@ -168,9 +174,56 @@ def test_calibration_files_pass_missing_and_bad(tmp_path: Path) -> None:
     assert r["status"] == "fail" and "gripper did not move" in r["detail"]
     assert r["file"] == {
         "root": "calibration",
-        "path": "robots/so_follower/phi_leader.json",
+        "path": "teleoperators/so_leader/phi_leader.json",
         "line": None,
     }
+
+
+def test_calibration_is_checked_per_kind_not_by_name(tmp_path: Path) -> None:
+    broken = good_cal()
+    broken["gripper"]["range_max"] = broken["gripper"]["range_min"]
+    # A leader and a follower may share an id: each is checked, in its own folder.
+    shared = CONFIG.replace("phi_follower", "arm").replace("phi_leader", "arm")
+    inp = mac(tmp_path / "a", config=shared, cals={})
+    for sub, body in (
+        (("robots", "so_follower"), good_cal()),
+        (("teleoperators", "so_leader"), broken),
+    ):
+        f = tmp_path.joinpath("a", "cal", *sub, "arm.json")
+        f.parent.mkdir(parents=True)
+        f.write_text(json.dumps(body))
+    r = C.check_calibrations(inp)
+    assert r["status"] == "fail" and r["file"]["path"] == "teleoperators/so_leader/arm.json"
+    # A stale file from an older folder name next to a valid one: a warning naming the stale one.
+    inp = mac(tmp_path / "b")
+    old = tmp_path / "b" / "cal" / "robots" / "so100_follower" / "phi_follower.json"
+    old.parent.mkdir(parents=True)
+    old.write_text(json.dumps(broken))
+    r = C.check_calibrations(inp)
+    assert r["status"] == "warn" and "so100_follower" in r["detail"]
+    assert r["file"]["path"] == "robots/so100_follower/phi_follower.json"
+
+
+def test_tty_and_cu_names_of_one_port_are_a_duplicate(tmp_path: Path) -> None:
+    cfg = CONFIG.replace("/dev/tty.usbmodemL", "/dev/cu.usbmodemF")
+    r = C.check_config_ports(mac(tmp_path, config=cfg))
+    assert r["status"] == "fail" and "the same device" in r["detail"] and r["file"]["line"] == 11
+
+
+def test_checks_and_files_read_the_same_rig_config(tmp_path: Path) -> None:
+    from phi.studio.files import Files, Root
+
+    main, wt = tmp_path / "main", tmp_path / "wt"
+    for d in (main, wt):
+        d.mkdir()
+        (d / "robot-config.yaml").write_text(CONFIG)
+    f = Files([Root("code", "Studio code", wt), Root("repo", "Main checkout", main)])
+    note = next(n for n in f.notes() if n["path"] == "robot-config.yaml")
+    assert note["root"] == "repo" and f.locate("robot-config.yaml") == ("repo", "robot-config.yaml")
+    assert C.find_rig_config(Inputs(roots={"code": wt, "repo": main})) == (
+        "repo",
+        main / "robot-config.yaml",
+    )
 
 
 def test_data_folder_free_space_and_writability(tmp_path: Path) -> None:
@@ -200,6 +253,23 @@ def test_rig_checks_skip_until_connected() -> None:
         "loop",
     ):
         assert res[key]["status"] == "skip", key
+
+
+def test_rig_checks_skip_when_the_worker_died_or_telemetry_stalled() -> None:
+    dead = connected()
+    dead.worker_alive = False
+    dead.identity = [{"name": "f", "ok": True, "expected": "phi_follower", "max_deg": 0.1}]
+    dead.cameras = {"top": {"online": True, "fps": 15.0, "age_s": 0.1}}
+    res = by_id(dead)
+    for key in ("arms_answer", "identity", "faults", "temperature", "load", "loop", "cameras"):
+        assert res[key]["status"] == "skip" and "worker stopped" in res[key]["detail"], key
+    stalled = connected()
+    stalled.telemetry_age_s = 9.0
+    res = by_id(stalled)
+    assert res["faults"]["status"] == "skip" and "No telemetry for 9 s" in res["faults"]["detail"]
+    live = connected()
+    live.telemetry_age_s = 0.05
+    assert by_id(live)["faults"]["status"] == "pass"
 
 
 def test_a_healthy_connected_rig_passes() -> None:
@@ -309,6 +379,12 @@ def test_signed_out_assistant_warns_with_the_fix() -> None:
     }
     r = C.check_assistant(Inputs(assistant=status))
     assert r["status"] == "warn" and r["fix"] == "claude auth login"
+
+
+def test_a_ready_assistant_names_its_version() -> None:
+    status = {"available": True, "method": "claude.ai", "version": "2.1.290"}
+    r = C.check_assistant(Inputs(assistant=status))
+    assert r["status"] == "pass" and r["detail"].startswith("Claude Code 2.1.290.")
 
 
 def test_a_check_that_raises_is_reported_not_hidden(monkeypatch: pytest.MonkeyPatch) -> None:

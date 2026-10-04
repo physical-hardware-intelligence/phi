@@ -6,6 +6,9 @@ panel without a Claude login. Reads one JSON user message per line; answers by k
     silent   never answer
     slow     stream slowly (for Stop)
     demo     a markdown answer with a list, code and a file path, streamed (for the browser check)
+    outdated answer like a CLI too old for the model does (seen 2026-10-04 with 2.1.235)
+
+`--version` prints 2.1.235, or the X of a `--version-override=X` argument.
     anything else: echo the question, report two context fields, and "read" a file
 """
 
@@ -38,7 +41,17 @@ DEMO = (
 )
 
 
+OUTDATED = (
+    "API Error: 400 Claude Code 2.1.235 does not support this model; version 2.1.280 or newer is "
+    "required. Run 'claude update', or update the Claude desktop app, then try again."
+)
+
+
 def main() -> None:
+    if "--version" in sys.argv:
+        over = [a.split("=", 1)[1] for a in sys.argv if a.startswith("--version-override=")]
+        print(f"{over[0] if over else '2.1.235'} (Claude Code)")
+        return
     if "auth" in sys.argv and "status" in sys.argv:
         print(json.dumps({"loggedIn": "--signed-out" not in sys.argv, "authMethod": "stand-in"}))
         return
@@ -53,6 +66,10 @@ def main() -> None:
             sys.exit(3)
         if question == "silent":
             time.sleep(3600)
+        if question == "outdated":
+            out({"type": "assistant", "message": {"content": [{"type": "text", "text": OUTDATED}]}})
+            out({"type": "result", "subtype": "success", "is_error": True, "result": OUTDATED})
+            continue
         if question == "signout":
             text = "Failed to authenticate: OAuth session expired and could not be refreshed"
             out({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}})

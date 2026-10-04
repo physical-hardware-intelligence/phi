@@ -26,6 +26,10 @@ export function Notices() {
           fix="Open the link Studio printed in the terminal. Each launch makes a new one." />
       )}
       {link === "closed" && <Notice tone="warn" title="Connection lost. Reconnecting." fix="" />}
+      {link === "down" && (
+        <Notice tone="danger" title="Studio is not running"
+          fix="Start it again in a terminal with make studio. A new launch prints a new link; open that one." />
+      )}
       {exit && <Notice tone="danger" title={exit} fix="Run phi studio again. Motion stopped when the worker ended." ask />}
       {s?.state === "FAULT" && s.fault && <Notice tone="danger" title={s.fault} fix={fixFor(s.fault)} ask />}
       {s?.state === "STOPPED" && s.stop_reason === "heartbeat" && (

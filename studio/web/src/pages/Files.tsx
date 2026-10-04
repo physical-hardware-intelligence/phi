@@ -3,6 +3,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { studio, useStudio, type FileRef, type SearchHit, type SerialPort } from "../lib/studio";
+import { Notices } from "../components/Notices";
 
 // The files that answer "which port, which arm, which calibration" on this Mac, plus search over every
 // folder Studio can show. Read-only: nothing on this page changes a file.
@@ -17,6 +18,7 @@ export function Files() {
 
   return (
     <div className="page">
+      <Notices />
       <div className="files-grid">
         <div className="col">
           <SearchBox onSearch={() => setView("search")} />

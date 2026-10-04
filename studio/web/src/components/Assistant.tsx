@@ -57,13 +57,15 @@ function Status() {
 function SignIn() {
   const st = useStudio((s) => s.assist.status);
   if (!st || st.available) return null;
-  const cmd = st.fix?.match(/claude auth login/) ? "claude auth login" : null;
+  const cmd = st.fix?.match(/claude (auth login|update)/)?.[0] ?? null;
   return (
     <div className="assist-signin">
       <div className="assist-signin-title"><CircleAlert aria-hidden /> {st.error}</div>
       {cmd ? (
         <>
-          <p>Studio uses the Claude login on this Mac, so it stores no key. Sign in once in a terminal:</p>
+          <p>{cmd === "claude update"
+            ? "Claude's servers refuse this version of the command-line tool. Update it in a terminal:"
+            : "Studio uses the Claude login on this Mac, so it stores no key. Sign in once in a terminal:"}</p>
           <CopyLine text={cmd} />
           <p className="faint">Then check again. Studio keeps working without Claude.</p>
         </>
@@ -116,6 +118,9 @@ function Intro() {
 
 function TurnView({ t, last }: { t: Turn; last: boolean }) {
   const text = t.parts.filter((p) => p.kind === "text").map((p) => p.text).join("");
+  const status = useStudio((s) => s.assist.status);
+  // While the notice above says Claude is unusable, it carries the fix; asking again would fail the same way.
+  const blocked = status?.available === false;
   return (
     <article className="turn">
       <div className="turn-q">
@@ -129,8 +134,8 @@ function TurnView({ t, last }: { t: Turn; last: boolean }) {
         {t.state === "error" && t.error && (
           <div className="turn-error">
             <div className="turn-error-msg"><CircleAlert aria-hidden /> {t.error.message}</div>
-            {t.error.fix && <div className="turn-error-fix">{t.error.fix}</div>}
-            {last && <button className="btn btn-sm" onClick={() => studio.ask(t.question)}>Ask again</button>}
+            {t.error.fix && !(blocked && t.error.fix === status?.fix) && <div className="turn-error-fix">{t.error.fix}</div>}
+            {last && !blocked && <button className="btn btn-sm" onClick={() => studio.ask(t.question)}>Ask again</button>}
           </div>
         )}
         {(t.state === "done" || t.state === "stopped") && (

@@ -1,5 +1,5 @@
-import { Circle, Hand, LoaderCircle, OctagonAlert, Plug, Ruler, Square, TriangleAlert } from "lucide-react";
-import type { SessionState, StateMsg } from "../lib/studio";
+import { Circle, CircleOff, Hand, LoaderCircle, OctagonAlert, Plug, Ruler, Square, TriangleAlert } from "lucide-react";
+import type { Link, SessionState, StateMsg } from "../lib/studio";
 
 // Shape as well as colour, so state never depends on colour alone (WCAG 1.4.1).
 const SHAPE: Record<SessionState, typeof Circle> = {
@@ -16,12 +16,21 @@ const SHAPE: Record<SessionState, typeof Circle> = {
 
 const ACTIVITY: Record<string, string> = { teleop: "teleop", policy: "policy", replay: "replay", calibration: "calibration" };
 
-export function StatePill({ s }: { s: StateMsg | null }) {
-  if (!s) {
+// Without a live link the rig state is unknown; say why instead of showing the last one.
+const NO_LINK: Record<Exclude<Link, "open">, { label: string; tone: string; spin: boolean }> = {
+  connecting: { label: "Connecting", tone: "neutral", spin: true },
+  closed: { label: "Reconnecting", tone: "warn", spin: true },
+  down: { label: "Studio not running", tone: "danger", spin: false },
+  refused: { label: "Not connected", tone: "danger", spin: false },
+};
+
+export function StatePill({ s, link }: { s: StateMsg | null; link: Link }) {
+  if (link !== "open" || !s) {
+    const n = link === "open" ? { label: "Starting", tone: "neutral", spin: true } : NO_LINK[link];
     return (
-      <span className="state-pill tone-neutral">
-        <LoaderCircle className="spin" aria-hidden />
-        <span>Starting</span>
+      <span className={`state-pill tone-${n.tone}`} role="status">
+        {n.spin ? <LoaderCircle className="spin" aria-hidden /> : <CircleOff aria-hidden />}
+        <span>{n.label}</span>
       </span>
     );
   }

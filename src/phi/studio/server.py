@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import multiprocessing as mp
 import os
 import secrets
@@ -41,6 +42,7 @@ from phi.studio.evals import EvalError, EvalStore
 from phi.studio.files import FileError, Files, default_roots, list_ports
 
 STATIC = Path(__file__).parent / "static"
+log = logging.getLogger(__name__)
 COMMANDS = {"heartbeat", "connect", "identify", "confirm", "arm", "start", "stop", "resume",
             "release", "clear", "disconnect", "inject",
             "cal_start", "cal_middle", "cal_finish", "cal_save", "cal_cancel"}  # fmt: skip
@@ -121,6 +123,7 @@ class Studio:
         ] = {}  # newest state / identity, replayed to new windows
         self.run: dict[str, Any] | None = None  # telemetry's policy view, set by the reader thread
         self.telemetry: dict[str, Any] | None = None  # newest, for the assistant's context
+        self.telemetry_at: float | None = None  # monotonic time it arrived
         self.log: deque[dict[str, Any]] = deque(maxlen=LOG_SIZE)  # state changes and errors
         # Per camera: online, the last error, and when the newest frame arrived with a smoothed
         # interval between frames, for the checks. Written by the reader thread as whole tuples.
@@ -166,7 +169,7 @@ class Studio:
         if kind in REPLAYED:
             self.last[kind] = msg
         if kind == "telemetry":
-            self.telemetry = msg
+            self.telemetry, self.telemetry_at = msg, time.monotonic()
             self.run = msg.get("policy")  # the newest policy run: the only one an eval can judge
         elif kind == "state":
             why = msg.get("fault") or msg.get("stop_reason")
@@ -247,9 +250,7 @@ class Studio:
         self.stop_worker()
 
     async def health(self, request: web.Request) -> web.Response:
-        return web.json_response(
-            {"ok": True, "worker_alive": bool(self.proc and self.proc.is_alive())}
-        )
+        return web.json_response({"ok": True, "worker_alive": self.worker_alive()})
 
     async def index(self, request: web.Request) -> web.StreamResponse:
         page = STATIC / "index.html"
@@ -412,11 +413,27 @@ class Studio:
             elif cmd == "ports":
                 ident = self.last.get("identity", {}).get("arms", [])
                 client.push({"type": "ports", **(await asyncio.to_thread(list_ports, ident))})
-        except FileError as e:
-            client.push({"type": "file_error", "message": str(e), "path": msg.get("path")})
-        except OSError as e:
-            client.push({"type": "file_error", "message": f"Could not read it: {e}",
-                         "path": msg.get("path")})  # fmt: skip
+        except Exception as e:  # WHY all: a dropped error leaves the window's spinner up forever
+            self._read_only_failed(client, cmd, msg, e)
+
+    def _read_only_failed(
+        self, client: Client, cmd: str, msg: dict[str, Any], e: Exception
+    ) -> None:
+        if not isinstance(e, FileError | OSError):
+            log.exception("%s failed", cmd)
+        text = str(e) if isinstance(e, FileError) else f"{type(e).__name__}: {e}"
+        if cmd == "checks_run":
+            client.push({"type": "checks", "error": f"Checks could not run: {text}"})
+        elif cmd in ("file_read", "files_search"):
+            op = "search" if cmd == "files_search" else "read"
+            if not isinstance(e, FileError):
+                text = f"Could not read it: {text}"
+            client.push({"type": "file_error", "op": op, "message": text, "path": msg.get("path")})
+        else:
+            fix = "Try again. If it repeats, ask Claude or restart Studio."
+            client.push(
+                {"type": "error", "message": f"Studio could not answer {cmd}: {text}", "fix": fix}
+            )
 
     async def _check_inputs(self) -> Inputs:
         ident = self.last.get("identity", {}).get("arms", [])
@@ -442,14 +459,24 @@ class Studio:
             data_dir=self.data_dir,
             code_root=self.code_root,
             static_dir=STATIC,
+            worker_alive=self.worker_alive(),
+            telemetry_age_s=now - self.telemetry_at if self.telemetry_at is not None else None,
         )
+
+    def worker_alive(self) -> bool:
+        return "worker_exit" not in self.last and bool(self.proc and self.proc.is_alive())
 
     def _checks_summary(self) -> dict[str, Any] | None:
         if self.checks is None:
             return None
         bad = [r for r in self.checks["results"] if r["status"] in ("warn", "fail")]
+        age = round((time.time() - self.checks["at"]) / 60)
         return {
-            "ran": time.strftime("%H:%M:%S", time.localtime(self.checks["at"])),
+            "ran": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.checks["at"])),
+            "minutes_ago": age,
+            # WHY: the rig can change after a run; old failures must not read as current.
+            "note": "A snapshot from that run, not live. If the rig or config changed since, "
+            "ask the user to press Run again on the Checks page.",
             "not_passing": [{k: r[k] for k in ("title", "status", "detail", "fix")} for r in bad],
         }
 

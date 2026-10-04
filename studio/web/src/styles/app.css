@@ -2,7 +2,12 @@
 /* The row is minmax(0, 1fr) so a long page scrolls inside .content and the header with Stop stays put. */
 .shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; }
 .shell.has-assist { grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--assist-w); }
-.main { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; height: 100%; }
+.main { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; height: 100%; container: main / inline-size; }
+/* A narrow main column (a half-screen window, or Claude open) compacts the top bar before Stop can be
+   pushed out of it: shortcut hints, the Ask Claude label and the p99 go first. */
+@container main (max-width: 760px) {
+  .topbar .kbd, .ask-btn-label, .loop-p99 { display: none; }
+}
 /* No page-switch animation: pages change instantly, as in a native app. */
 .content { overflow: auto; container: content / inline-size; }
 .page {
@@ -307,10 +312,18 @@ fieldset.form { border: 0; margin: 0; min-width: 0; }
   display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; min-width: 0;
   background: var(--bg-panel); border-left: 1px solid var(--border-subtle);
 }
-@media (max-width: 1120px) {
+@media (max-width: 1240px) { /* WHY 1240: measured, the narrowest grid width where the top bar still fits */
   .shell.has-assist { grid-template-columns: var(--sidebar-w) minmax(0, 1fr); }
-  .assist { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--assist-w), 100vw); box-shadow: var(--shadow-float); z-index: 30; }
+  /* WHY below the header: the top bar holds Stop, and a drawer must never cover it. */
+  .assist { position: fixed; top: var(--header-h); right: 0; bottom: 0; width: min(var(--assist-w), 100vw); box-shadow: var(--shadow-float); z-index: 30; }
 }
+.boundary { display: grid; gap: var(--space-2); align-content: start; padding: var(--space-5) var(--space-6); }
+.boundary.assist { grid-template-rows: none; align-content: start; }
+.boundary p { margin: 0; color: var(--text-secondary); max-width: 60ch; }
+.boundary-title { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; color: var(--danger-text); }
+.boundary-title svg { width: 15px; height: 15px; flex: none; }
+.boundary-actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+
 .assist-head {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
   min-height: var(--header-h); padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);

@@ -1,5 +1,6 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { Suspense, lazy, useCallback, useEffect, type ComponentType } from "react";
+import { Suspense, lazy, useEffect, type ComponentType } from "react";
+import { Boundary } from "./components/Boundary";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { getTheme, setTheme, studio, useRoute, useStudio, type Route } from "./lib/studio";
@@ -27,21 +28,7 @@ const PAGES: Record<Route, { title: string; sub: string; el: ComponentType }> = 
 export function App() {
   const route = useRoute();
   const assist = useStudio((s) => s.assist.open);
-  const stop = useCallback(() => {
-    if (studio.send({ cmd: "stop" })) return;
-    // WHY say so: a silent no-op Stop is the worst failure a stop button can have.
-    studio.localError(
-      "Stop did not reach Studio: this window is offline",
-      "If this window had control, the rig stopped when the link dropped. Otherwise stop from the window that has control, or cut the followers' power.",
-    );
-  }, []);
-
-  // Esc stops from any page and any focus, including inside dialogs: capture phase, before anything else.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") stop(); };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [stop]);
+  // Esc to stop is registered by studio.start(), outside React, so a render crash cannot remove it.
   // Cmd+J (Ctrl+J off the Mac) opens and closes Claude from anywhere.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -62,12 +49,16 @@ export function App() {
       <div className={`shell ${assist ? "has-assist" : ""}`}>
         <Sidebar />
         <div className="main">
-          <TopBar title={page.title} sub={page.sub} onStop={stop} />
+          <TopBar title={page.title} sub={page.sub} onStop={() => studio.stop()} />
           <main className="content" key={route}>
-            <Page />
+            <Boundary what={`The ${page.title} page`}><Page /></Boundary>
           </main>
         </div>
-        {assist && <Suspense fallback={<aside className="assist" aria-busy />}><AssistantPanel /></Suspense>}
+        {assist && (
+          <Boundary what="Claude" className="assist">
+            <Suspense fallback={<aside className="assist" aria-busy />}><AssistantPanel /></Suspense>
+          </Boundary>
+        )}
       </div>
     </Tooltip.Provider>
   );

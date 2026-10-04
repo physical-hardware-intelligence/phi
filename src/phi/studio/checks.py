@@ -25,6 +25,7 @@ from typing import Any
 
 import yaml
 
+from phi.studio.files import root_order
 from phi.studio.identity import TICKS_PER_REV, load_calibration
 from phi.studio.rig import JOINTS
 
@@ -63,6 +64,8 @@ class Inputs:
     data_dir: Path | None = None
     code_root: Path | None = None
     static_dir: Path | None = None
+    worker_alive: bool = True
+    telemetry_age_s: float | None = None  # seconds since the newest telemetry; None: none yet
 
 
 def result(
@@ -125,10 +128,21 @@ class ConfigArm:
     id: str
     port: str
     line: int  # 1-based line of the port value
+    type: str | None = None  # LeRobot type alias, e.g. so101_follower
+
+    @property
+    def kind(self) -> str | None:
+        """LeRobot's calibration subfolder for this arm: robots or teleoperators."""
+        t = (self.type or "").lower()
+        if t.endswith("_leader") or "teleop" in self.section:
+            return "teleoperators"
+        if t.endswith("_follower") or "robot" in self.section:
+            return "robots"
+        return None
 
 
 def find_rig_config(inp: Inputs) -> tuple[str, Path] | None:
-    for key in ("repo", "code"):
+    for key in root_order("robot-config.yaml"):  # the same copy the Files page shows
         root = inp.roots.get(key)
         if root is not None and (root / "robot-config.yaml").is_file():
             return key, root / "robot-config.yaml"
@@ -146,9 +160,10 @@ def parse_rig_config(text: str) -> list[ConfigArm]:
         if not isinstance(value, yaml.MappingNode):
             continue
         fields = {k.value: v for k, v in value.value if isinstance(k, yaml.ScalarNode)}
-        rid, port = fields.get("id"), fields.get("port")
+        rid, port, kind = fields.get("id"), fields.get("port"), fields.get("type")
         if isinstance(rid, yaml.ScalarNode) and isinstance(port, yaml.ScalarNode) and port.value:
-            arms.append(ConfigArm(key.value, rid.value, port.value, port.start_mark.line + 1))
+            t = kind.value if isinstance(kind, yaml.ScalarNode) else None
+            arms.append(ConfigArm(key.value, rid.value, port.value, port.start_mark.line + 1, t))
     return arms
 
 
@@ -215,6 +230,11 @@ def _live(ports: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _device(port: str) -> str:
+    """macOS lists each serial device twice, /dev/tty.X and /dev/cu.X. One name for both."""
+    return port.replace("/dev/cu.", "/dev/tty.", 1)
+
+
 def check_config_ports(inp: Inputs) -> dict[str, Any]:
     title = "Config ports are plugged in"
     ref, arms, err = _config(inp)
@@ -227,20 +247,23 @@ def check_config_ports(inp: Inputs) -> dict[str, Any]:
             "config_ports", "This Mac", title, "skip", inp.ports["error"], inp.ports.get("fix")
         )
     live = _live(inp.ports)
-    seen: dict[str, str] = {}
+    seen: dict[str, tuple[str, str]] = {}  # device -> (arm id, port as written)
     for a in arms:
-        if a.port in seen:
+        dev = _device(a.port)
+        if dev in seen:
+            other, written = seen[dev]
+            same = a.port if written == a.port else f"{written} and {a.port}, the same device"
             return result(
                 "config_ports",
                 "This Mac",
                 title,
                 "fail",
-                f"{seen[a.port]} and {a.id} both name {a.port}.",
+                f"{other} and {a.id} both name {same}.",
                 "Each arm has its own USB adapter. Run lerobot-find-port for each arm and fix "
                 "robot-config.yaml.",
                 {**ref, "line": a.line},
             )
-        seen[a.port] = a.id
+        seen[dev] = (a.id, a.port)
     missing = [a for a in arms if a.port not in live]
     listed = {a.port for a in arms}
     usb = sorted({p.get("tty") or p["device"] for p in inp.ports.get("ports", []) if p.get("usb")})
@@ -316,19 +339,37 @@ def calibration_problems(raw: Any) -> list[str]:
     return out
 
 
+ROLE_KIND = {"leader": "teleoperators", "follower": "robots"}
+
+
+def _cal_targets(inp: Inputs, arms: list[ConfigArm]) -> dict[tuple[str, str | None], Path | None]:
+    """(arm id, calibration subfolder) -> the exact file when known. One id can name a leader
+    and a follower, which LeRobot keeps apart (calibration/robots/, calibration/teleoperators/).
+    WHY not narrow by the config's `type`: LeRobot names the folder after the class
+    (robots/so_follower) while the config uses an alias (so101_follower); robots/robot.py:49."""
+    out: dict[tuple[str, str | None], Path | None] = {}
+    if inp.rig_kind == "mock":
+        # WHY not the mock's arms: the mock keeps its calibrations in memory and writes a file
+        # only when one is calibrated in Studio, so a missing mock file is normal. Files it did
+        # write are still checked.
+        if inp.rig_cal_dir is not None and inp.rig_cal_dir.is_dir():
+            for p in sorted(inp.rig_cal_dir.glob("*.json")):
+                out[(p.stem, None)] = p
+    else:
+        for a in inp.identity:
+            if a.get("expected"):
+                out.setdefault((a["expected"], ROLE_KIND.get(a.get("role", ""))), None)
+    for c in arms:
+        out.setdefault((c.id, c.kind), None)
+    return out
+
+
 def check_calibrations(inp: Inputs) -> dict[str, Any]:
     title = "Calibration files"
     _, arms, _ = _config(inp)
-    # WHY not the mock's arms: the mock keeps its calibrations in memory and writes a file only
-    # when one is calibrated in Studio, so a missing mock file is normal. Files it did write are
-    # still checked below.
-    rig_ids = [] if inp.rig_kind == "mock" else [a.get("expected") for a in inp.identity]
-    written = sorted(p.stem for p in inp.rig_cal_dir.glob("*.json")) if (
-        inp.rig_kind == "mock" and inp.rig_cal_dir is not None and inp.rig_cal_dir.is_dir()
-    ) else []  # fmt: skip
-    ids = list(dict.fromkeys([i for i in rig_ids if i] + [a.id for a in arms] + written))
+    targets = _cal_targets(inp, arms)
     dirs = _cal_dirs(inp)
-    if not ids:
+    if not targets:
         return result(
             "calibrations",
             "This Mac",
@@ -345,20 +386,32 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
             "No calibration folder exists yet.",
             "Calibrate each arm on the Calibrate page.",
         )
-    found: dict[str, Path] = {}
-    for d in dirs:
-        for p in sorted(d.rglob("*.json")):
-            found.setdefault(p.stem, p)
-    missing = [i for i in ids if i not in found]
+    every = [p for d in dirs for p in sorted(d.rglob("*.json"))]
+    missing: list[str] = []
     bad: list[tuple[str, list[str], Path]] = []
-    for i in ids:
-        if i in found:
+    stale: list[tuple[str, Path, Path]] = []  # (id, a valid file, an invalid one with the same id)
+    for (i, kind), exact in targets.items():
+        files = (
+            [exact]
+            if exact
+            else [p for p in every if p.stem == i and (kind is None or kind in p.parts)]
+        )
+        files = list(dict.fromkeys(files))
+        if not files:
+            missing.append(f"{i} ({kind[:-1]})" if kind else i)
+            continue
+        verdicts = []
+        for f in files:
             try:
-                problems = calibration_problems(json.loads(found[i].read_text()))
+                verdicts.append((f, calibration_problems(json.loads(f.read_text()))))
             except (OSError, ValueError) as e:
-                problems = [f"unreadable ({e})"]
-            if problems:
-                bad.append((i, problems, found[i]))
+                verdicts.append((f, [f"unreadable ({e})"]))
+        good = [f for f, probs in verdicts if not probs]
+        for f, probs in verdicts:
+            if probs and good:
+                stale.append((i, good[0], f))
+            elif probs:
+                bad.append((i, probs, f))
     if missing:
         return result(
             "calibrations",
@@ -377,11 +430,24 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
             "This Mac",
             title,
             "fail",
-            f"{i}: {'; '.join(problems)}.{more}",
+            f"{i}: {'; '.join(problems)} ({path.parent.name}/{path.name}).{more}",
             "Calibrate that arm again on the Calibrate page and move every joint through its "
             "full range.",
             _ref(inp, path),
         )
+    if stale:
+        i, ok, old = stale[0]
+        return result(
+            "calibrations",
+            "This Mac",
+            title,
+            "warn",
+            f"{i} has a valid file in {ok.parent.name}/ and an invalid one in {old.parent.name}/. "
+            "LeRobot reads the one in its class folder (so_follower or so_leader for an SO-101).",
+            "Delete or rename the invalid file so nobody loads it by mistake.",
+            _ref(inp, old),
+        )
+    ids = sorted({i for i, _ in targets})
     return result(
         "calibrations",
         "This Mac",
@@ -428,18 +494,35 @@ def check_disk(inp: Inputs) -> dict[str, Any]:
 
 
 # -- rig ----------------------------------------------------------------------
-def _connected(inp: Inputs) -> bool:
-    s = (inp.state or {}).get("state")
-    return bool(s) and s != "DISCONNECTED" and bool((inp.telemetry or {}).get("arms"))
-
-
 SKIP_RIG = "Connect the rig first."
+WORKER_DOWN = "The robot worker stopped, so every value Studio holds is stale. Restart Studio."
+TELEMETRY_STALE_S = 2.0  # the worker sends telemetry at the loop rate, so 2 s of silence is a stall
+
+
+def _rig_skip(inp: Inputs) -> str | None:
+    """Why the rig checks cannot trust what Studio holds, or None when it is live.
+    WHY: after the worker dies or stalls, the last state and telemetry stay in memory; checking
+    them would pass a rig nobody is reading."""
+    if not inp.worker_alive:
+        return WORKER_DOWN
+    s = (inp.state or {}).get("state")
+    if not s or s == "DISCONNECTED" or not (inp.telemetry or {}).get("arms"):
+        return SKIP_RIG
+    if inp.telemetry_age_s is not None and inp.telemetry_age_s > TELEMETRY_STALE_S:
+        return f"No telemetry for {inp.telemetry_age_s:.0f} s, so the last values are stale."
+    return None
+
+
+def _identity_skip(inp: Inputs) -> str | None:
+    if not inp.worker_alive:
+        return WORKER_DOWN
+    return None if inp.identity else SKIP_RIG
 
 
 def check_arms_answer(inp: Inputs) -> dict[str, Any]:
     title = "Every arm answers"
-    if not _connected(inp):
-        return result("arms_answer", "Rig", title, "skip", SKIP_RIG)
+    if why := _rig_skip(inp):
+        return result("arms_answer", "Rig", title, "skip", why)
     arms = inp.telemetry["arms"]
     dead = [n for n, a in arms.items() if not a.get("online")]
     if dead:
@@ -462,8 +545,8 @@ def check_arms_answer(inp: Inputs) -> dict[str, Any]:
 
 def check_identity(inp: Inputs) -> dict[str, Any]:
     title = "Each arm matches its calibration"
-    if not inp.identity:
-        return result("identity", "Rig", title, "skip", SKIP_RIG)
+    if why := _identity_skip(inp):
+        return result("identity", "Rig", title, "skip", why)
     bad = [a for a in inp.identity if not a.get("ok")]
     if bad:
         a = bad[0]
@@ -500,8 +583,8 @@ def check_ports_vs_identity(inp: Inputs) -> dict[str, Any]:
     title = "Config ports match the arms"
     if inp.rig_kind == "mock":
         return result("ports_identity", "Rig", title, "skip", "Mock rig: its ports are not real.")
-    if not inp.identity:
-        return result("ports_identity", "Rig", title, "skip", SKIP_RIG)
+    if why := _identity_skip(inp):
+        return result("ports_identity", "Rig", title, "skip", why)
     ref, arms, err = _config(inp)
     if ref is None or err:
         return result("ports_identity", "Rig", title, "skip", "Needs a readable robot-config.yaml.")
@@ -542,8 +625,8 @@ def _health(inp: Inputs) -> list[tuple[str, str, dict[str, Any]]]:
 
 def check_faults(inp: Inputs) -> dict[str, Any]:
     title = "No servo fault bits"
-    if not _connected(inp):
-        return result("faults", "Rig", title, "skip", SKIP_RIG)
+    if why := _rig_skip(inp):
+        return result("faults", "Rig", title, "skip", why)
     hits = [f"{n} {j}: {', '.join(h['faults'])}" for n, j, h in _health(inp) if h.get("faults")]
     if hits:
         return result(
@@ -562,8 +645,8 @@ def check_faults(inp: Inputs) -> dict[str, Any]:
 def check_temperature(inp: Inputs) -> dict[str, Any]:
     title = "Servo temperature"
     rows = _health(inp)
-    if not _connected(inp) or not rows:
-        return result("temperature", "Rig", title, "skip", SKIP_RIG)
+    if (why := _rig_skip(inp)) or not rows:
+        return result("temperature", "Rig", title, "skip", why or SKIP_RIG)
     n, j, h = max(rows, key=lambda r: r[2]["temp"])
     detail = f"Hottest: {n} {j} at {h['temp']:.0f} °C"
     if h["temp"] >= TEMP_WARN_C:
@@ -581,8 +664,8 @@ def check_temperature(inp: Inputs) -> dict[str, Any]:
 def check_load(inp: Inputs) -> dict[str, Any]:
     title = "Servo load"
     rows = _health(inp)
-    if not _connected(inp) or not rows:
-        return result("load", "Rig", title, "skip", SKIP_RIG)
+    if (why := _rig_skip(inp)) or not rows:
+        return result("load", "Rig", title, "skip", why or SKIP_RIG)
     n, j, h = max(rows, key=lambda r: abs(r[2]["load"]))
     detail = f"Highest: {n} {j} at {abs(h['load']):.0f} % of rated"
     if abs(h["load"]) > LOAD_WARN_PCT:
@@ -599,8 +682,8 @@ def check_load(inp: Inputs) -> dict[str, Any]:
 
 def check_voltage(inp: Inputs) -> dict[str, Any]:
     title = "Supply voltage"
-    if not _connected(inp):
-        return result("voltage", "Rig", title, "skip", SKIP_RIG)
+    if why := _rig_skip(inp):
+        return result("voltage", "Rig", title, "skip", why)
     per: dict[str, list[float]] = {}
     for n, _, h in _health(inp):
         per.setdefault(n, []).append(h["volt"])
@@ -617,8 +700,8 @@ def check_voltage(inp: Inputs) -> dict[str, Any]:
 
 def check_leader_torque(inp: Inputs) -> dict[str, Any]:
     title = "Leaders move freely"
-    if not _connected(inp):
-        return result("leader_torque", "Rig", title, "skip", SKIP_RIG)
+    if why := _rig_skip(inp):
+        return result("leader_torque", "Rig", title, "skip", why)
     if (inp.state or {}).get("state") == "CALIBRATING":
         return result("leader_torque", "Rig", title, "skip", "Calibration is in progress.")
     held = [
@@ -639,8 +722,8 @@ def check_leader_torque(inp: Inputs) -> dict[str, Any]:
 def check_loop(inp: Inputs) -> dict[str, Any]:
     title = "Control loop rate"
     loop = (inp.telemetry or {}).get("loop") or {}
-    if not _connected(inp) or not loop.get("hz"):
-        return result("loop", "Rig", title, "skip", SKIP_RIG)
+    if (why := _rig_skip(inp)) or not loop.get("hz"):
+        return result("loop", "Rig", title, "skip", why or SKIP_RIG)
     p99 = loop.get("p99_ms", 0.0)
     detail = f"{loop['hz']:.1f} Hz, p99 cycle {p99:.1f} ms (target {LOOP_TARGET_HZ:.0f} Hz)"
     if loop["hz"] < LOOP_WARN_HZ or loop.get("p99_ms", 0) > LOOP_P99_WARN_MS:
@@ -657,6 +740,8 @@ def check_loop(inp: Inputs) -> dict[str, Any]:
 
 def check_cameras(inp: Inputs) -> dict[str, Any]:
     title = "Cameras stream"
+    if not inp.worker_alive:
+        return result("cameras", "Rig", title, "skip", WORKER_DOWN)
     if not inp.cameras:
         return result("cameras", "Rig", title, "skip", "No camera has reported yet.")
     down = [
@@ -688,9 +773,10 @@ def check_cameras(inp: Inputs) -> dict[str, Any]:
 def check_assistant(inp: Inputs) -> dict[str, Any]:
     title = "Claude assistant"
     a = inp.assistant
+    ver = f"Claude Code {a['version']}. " if a.get("version") else ""
     if a.get("available"):
         how = f" ({a['method']})" if a.get("method") else ""
-        return result("assistant", "Studio", title, "pass", f"Signed in{how}")
+        return result("assistant", "Studio", title, "pass", f"{ver}Signed in{how}")
     return result(
         "assistant", "Studio", title, "warn", a.get("error") or "Not available.", a.get("fix")
     )

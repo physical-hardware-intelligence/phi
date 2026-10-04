@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import shlex
 import shutil
 import uuid
@@ -35,6 +36,12 @@ TOOLS = "Read,Grep,Glob"
 DENY = ("Read(**/.env*)", "Read(**/*token*)", "Read(**/*secret*)", "Read(**/*credential*)",
         "Read(**/*.pem)", "Read(**/*.key)", "Read(~/.ssh/**)", "Read(**/.git/**)")  # fmt: skip
 SIGN_IN_FIX = "Sign in once in a terminal: claude auth login. Then ask again."
+UPDATE_FIX = "Update Claude Code in a terminal: claude update. Then press Check again."
+# WHY: an old CLI is refused per model by the API, so it signs in fine and then fails every
+# question (seen 2026-10-04: "Claude Code 2.1.235 does not support this model; version 2.1.280
+# or newer is required. Run 'claude update' ..."). Only the answer reveals it.
+OUTDATED = re.compile(r"or newer is required|run .?claude update", re.IGNORECASE)
+OUTDATED_VERSION = re.compile(r"Claude Code (\d+\.\d+\.\d+)")
 
 SYSTEM = """You are the assistant inside Phi Studio, a local web app on the user's Mac for LeRobot
 SO-101 robot arms: connect, calibrate, teleoperate leader to follower (one or two pairs), run
@@ -87,6 +94,8 @@ class ClaudeCLI:
     dirs: list[Path] = field(default_factory=list)
     model: str | None = None
     cmd: list[str] | None = field(default_factory=find_cli)
+    version: str | None = None  # from the last status()
+    blocked: str | None = None  # the version the API refused as too old, until it changes
 
     def args(self) -> list[str]:
         assert self.cmd is not None
@@ -101,34 +110,41 @@ class ClaudeCLI:
             a += ["--model", self.model]
         return a
 
+    async def _run(self, *args: str) -> str:
+        assert self.cmd is not None
+        p = await asyncio.create_subprocess_exec(
+            *self.cmd, *args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, env=child_env())  # fmt: skip
+        out, _ = await asyncio.wait_for(p.communicate(), 15)
+        return out.decode(errors="replace")
+
     async def status(self) -> dict[str, Any]:
-        """Is Claude usable on this Mac? Runs `claude auth status`, which prints JSON."""
-        base = {"model": self.model, "signed_in": False, "method": None}
+        """Is Claude usable on this Mac? Runs `claude --version` and `claude auth status` (JSON)."""
+        base = {"model": self.model, "signed_in": False, "method": None, "version": None}
         if self.cmd is None:
             return {**base, "available": False,
                     "error": "Claude Code is not installed on this Mac.",
                     "fix": "Install Claude Code, then sign in: claude auth login"}  # fmt: skip
         try:
-            p = await asyncio.create_subprocess_exec(
-                *self.cmd,
-                "auth",
-                "status",
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=child_env(),
-            )
-            out, _ = await asyncio.wait_for(p.communicate(), 15)
-            info = json.loads(out.decode() or "{}")
+            ver, auth = await asyncio.gather(self._run("--version"), self._run("auth", "status"))
+            info = json.loads(auth or "{}")
         except (OSError, ValueError, TimeoutError) as e:
             return {**base, "available": False,
                     "error": f"Could not ask Claude Code its status: {e}",
                     "fix": "Check that `claude --version` runs in a terminal."}  # fmt: skip
+        self.version = base["version"] = ver.split()[0] if ver.split() else None
         if not info.get("loggedIn"):
             return {**base, "available": False, "error": "Claude is not signed in on this Mac.",
                     "fix": SIGN_IN_FIX}  # fmt: skip
-        return {**base, "available": True, "signed_in": True, "method": info.get("authMethod"),
-                "error": None, "fix": None}  # fmt: skip
+        base |= {"signed_in": True, "method": info.get("authMethod")}
+        if self.blocked is not None and self.version in (None, self.blocked):
+            return {**base, "available": False, "error": too_old(self.blocked), "fix": UPDATE_FIX}
+        self.blocked = None  # a new version gets a fresh try
+        return {**base, "available": True, "error": None, "fix": None}
+
+
+def too_old(version: str | None) -> str:
+    return f"Claude Code {version or 'on this Mac'} is too old for the current Claude model."
 
 
 def describe_tool(name: str, inp: dict[str, Any]) -> str:
@@ -257,11 +273,13 @@ class Conversation:
             with contextlib.suppress(ProcessLookupError):
                 p.kill()
 
-    def _fail(self, message: str, fix: str | None = None) -> None:
+    def _fail(self, message: str, fix: str | None = None, echoed: bool = False) -> None:
+        """`echoed`: the streamed answer was only the CLI repeating this error, so the window
+        drops it and the replay leaves it out."""
         if self.busy:
-            self.turns.append((self.question, self.answer + " [failed]"))
+            self.turns.append((self.question, ("" if echoed else self.answer) + " [failed]"))
         self.busy = False
-        self._send("error", message=message, fix=fix)
+        self._send("error", message=message, fix=fix, echoed=echoed)
         self._kill()
 
     # -- events -----------------------------------------------------------------------------------
@@ -319,12 +337,19 @@ class Conversation:
             text = ev.get("result") if isinstance(ev.get("result"), str) else ""
             if not self.busy:
                 return
+            echoed = bool(text.strip()) and self.answer.strip() == text.strip()
             if "Failed to authenticate" in text or "not logged in" in text.lower():
-                self._fail("Claude is not signed in on this Mac.", SIGN_IN_FIX)
+                self._fail("Claude is not signed in on this Mac.", SIGN_IN_FIX, echoed)
                 return
-            if ev.get("is_error") or ev.get("subtype") not in (None, "success"):
-                self._fail(f"Claude could not answer: {text or ev.get('subtype')}",
-                           "Ask again. If it repeats, start a new conversation.")  # fmt: skip
+            failed = ev.get("is_error") or ev.get("subtype") not in (None, "success")
+            if failed and OUTDATED.search(text):
+                m = OUTDATED_VERSION.search(text)
+                self.cli.blocked = m.group(1) if m else (self.cli.version or "")
+                self._fail(too_old(self.cli.blocked), UPDATE_FIX, echoed)
+                return
+            if failed:
+                retry = "Ask again. If it repeats, start a new conversation."
+                self._fail(f"Claude could not answer: {text or ev.get('subtype')}", retry, echoed)
                 return
             self.turns.append((self.question, self.answer))
             self.busy = False

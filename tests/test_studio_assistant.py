@@ -153,3 +153,23 @@ def test_status_says_whether_claude_is_usable(tmp_path: Path) -> None:
         await c.aclose()
 
     run(go())
+
+
+def test_an_outdated_cli_says_to_update_and_status_remembers_it(tmp_path: Path) -> None:
+    async def go() -> None:
+        cli = ClaudeCLI(cwd=tmp_path, cmd=FAKE)
+        st = await cli.status()
+        assert st["available"] and st["version"] == "2.1.235"
+        ev: list[dict] = []
+        c = Conversation(cli, ev.append)
+        await c.ask("outdated", CONTEXT)
+        err = await until(ev, "error")
+        assert "2.1.235 is too old" in err["message"] and "claude update" in err["fix"]
+        assert err["echoed"]  # the window drops the streamed copy of the same error
+        st = await cli.status()
+        assert not st["available"] and st["signed_in"] and "claude update" in st["fix"]
+        cli.cmd = [*FAKE, "--version-override=2.1.290"]  # after `claude update`
+        assert (await cli.status())["available"]
+        await c.aclose()
+
+    run(go())

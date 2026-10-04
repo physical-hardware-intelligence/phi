@@ -105,11 +105,11 @@ export interface EvalState { current: EvalRecord | null; past: EvalSummary[]; di
 export interface StudioError { id: number; message: string; fix: string; at: number }
 export interface ActivityEntry { id: number; at: number; tone: Tone; text: string; detail?: string; ask?: boolean } // ask: a problem Claude can help with
 
-export type Link = "connecting" | "open" | "closed" | "refused";
+export type Link = "connecting" | "open" | "closed" | "refused" | "down"; // down: nothing answers at all
 
 // -- assistant and files ---------------------------------------------------------------------------
 export interface Focus { message: string; fix?: string } // the error a question is about
-export interface AssistStatus { available: boolean; signed_in: boolean; method: string | null; model: string | null; error: string | null; fix: string | null }
+export interface AssistStatus { available: boolean; signed_in: boolean; method: string | null; model: string | null; version: string | null; error: string | null; fix: string | null }
 export type Part = { kind: "text"; text: string } | { kind: "tool"; text: string };
 export interface Turn {
   id: number;
@@ -192,6 +192,7 @@ class Studio {
   private beat: Worker | null = null;
   private errorId = 0;
   private retry = 0;
+  private started = false;
   snap: Snapshot = {
     link: "connecting", mock: false, control: false, state: null, identity: [],
     telemetry: null, errors: [], workerExit: null, cameras: {}, activity: [], rig: null, evals: null,
@@ -215,11 +216,26 @@ class Studio {
   }
 
   start(): void {
+    if (this.started) return;
+    this.started = true;
     // A link pasted into an already-open tab only changes the hash: pick the token up from there.
     window.addEventListener("hashchange", () => {
       if (/token=/.test(location.hash) && this.snap.link !== "open") { this.retry = 0; this.ws?.close(); this.connect(); }
     });
+    // Esc stops from any page and any focus, including inside dialogs: capture phase, before anything else.
+    // WHY here and not in a React effect: if rendering ever crashes, React unmounts the tree and its
+    // effects' listeners with it. This one lives as long as the page.
+    window.addEventListener("keydown", (e) => { if (e.key === "Escape") this.stop(); }, true);
     this.connect();
+  }
+
+  stop(): void {
+    if (this.send({ cmd: "stop" })) return;
+    // WHY say so: a silent no-op Stop is the worst failure a stop button can have.
+    this.localError(
+      "Stop did not reach Studio: this window is offline",
+      "If this window had control, the rig stopped when the link dropped. Otherwise stop from the window that has control, or cut the followers' power.",
+    );
   }
 
   connect(): void {
@@ -228,17 +244,36 @@ class Studio {
     const ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(tok)}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
-    this.set({ link: "connecting" });
-    ws.onopen = () => { this.retry = 0; this.set({ link: "open" }); this.startHeartbeat(); };
-    ws.onmessage = (e) => (typeof e.data === "string" ? this.onJson(JSON.parse(e.data)) : this.onFrame(e.data));
-    ws.onclose = (e) => {
-      this.stopHeartbeat();
-      // 1006 right after open usually means the handshake was refused (bad or stale token).
-      const refused = this.snap.link === "connecting" && this.retry >= 2;
-      this.set({ link: refused ? "refused" : "closed", control: false });
-      if (!refused) setTimeout(() => this.connect(), Math.min(4000, 500 * 2 ** this.retry++));
-      void e;
+    let opened = false;
+    if (this.snap.link !== "down") this.set({ link: "connecting" }); // WHY: no flicker while Studio is down
+    ws.onopen = () => {
+      opened = true;
+      this.retry = 0;
+      this.set({ link: "open" });
+      this.startHeartbeat();
+      if (this.snap.assist.open) this.send({ cmd: "assist_status" });
     };
+    ws.onmessage = (e) => (typeof e.data === "string" ? this.onJson(JSON.parse(e.data)) : this.onFrame(e.data));
+    ws.onclose = () => {
+      this.stopHeartbeat();
+      if (this.snap.link !== "down") this.set({ link: "closed" });
+      this.set({ control: false });
+      this.dropPending();
+      if (!opened && this.retry >= 2) void this.diagnose();
+      else this.reconnectSoon();
+    };
+  }
+
+  private reconnectSoon(): void { setTimeout(() => this.connect(), Math.min(4000, 500 * 2 ** this.retry++)); }
+
+  /** Why the link keeps failing. A WebSocket cannot say; the health endpoint, which needs no token, can.
+   * No answer: Studio is not running, so keep trying. An answer: Studio refused this window's token. */
+  private async diagnose(): Promise<void> {
+    try {
+      if ((await fetch("/api/health", { cache: "no-store" })).ok) { this.set({ link: "refused" }); return; }
+    } catch { /* nothing listening */ }
+    this.set({ link: "down" });
+    this.reconnectSoon();
   }
 
   // WHY a Worker for the heartbeat clock: browsers throttle timers in hidden or occluded tabs to
@@ -250,6 +285,21 @@ class Studio {
     this.beat.onmessage = () => this.send({ cmd: "heartbeat" });
   }
   private stopHeartbeat(): void { this.beat?.terminate(); this.beat = null; }
+
+  /** Replies that will never come once the link drops: clear what waits for them, so no spinner sticks. */
+  private dropPending(): void {
+    const f = this.snap.files;
+    if (this.snap.assist.status) this.setAssist({ status: null }); // re-checked on reconnect
+    if (this.snap.checks.running) this.set({ checks: { ...this.snap.checks, running: false } });
+    if (f.loading || f.searching) this.setFiles({ loading: null, searching: null });
+    const t = this.snap.assist.turns.at(-1);
+    if (t && (t.state === "waiting" || t.state === "streaming")) {
+      this.lastTurn((t) => ({
+        ...t, state: "error",
+        error: { message: "The link to Studio dropped during the answer.", fix: "Ask again once this window reconnects." },
+      }));
+    }
+  }
 
   /** False when this window has no live link, so the message went nowhere. */
   send(msg: Record<string, unknown>): boolean {
@@ -322,8 +372,12 @@ class Studio {
       case "tool": this.lastTurn((t) => ({ ...t, parts: [...t.parts, { kind: "tool", text: m.text }] })); break;
       case "done": this.lastTurn((t) => ({ ...t, state: m.stopped ? "stopped" : "done", ms: m.duration_ms })); break;
       case "error":
-        if (/not signed in|not installed/i.test(m.message)) this.send({ cmd: "assist_status" });
-        this.lastTurn((t) => ({ ...t, state: "error", error: { message: m.message, fix: m.fix } }));
+        if (/not signed in|not installed|too old/i.test(m.message)) this.send({ cmd: "assist_status" });
+        // An echoed error streamed in as answer text first; the error box says it once.
+        this.lastTurn((t) => ({
+          ...t, state: "error", error: { message: m.message, fix: m.fix },
+          parts: m.echoed ? t.parts.filter((p) => p.kind !== "text") : t.parts,
+        }));
         break;
       case "limit":
         this.lastTurn((t) => ({ ...t, parts: [...t.parts, { kind: "tool", text: `Usage limit: ${m.status}` }] }));
@@ -394,12 +448,17 @@ class Studio {
       case "assist_context": this.setAssist({ context: m.text }); break;
       case "files": this.setFiles({ index: { roots: m.roots, notes: m.notes, calibrations: m.calibrations } }); break;
       case "file": this.setFiles({ open: { root: m.root, path: m.path, abs: m.abs, text: m.text, size: m.size, mtime: m.mtime, truncated: m.truncated, line: m.line }, loading: null, error: null }); break;
-      case "file_error":
-        this.setFiles(this.snap.files.searching ? { searching: null, error: { message: m.message, path: m.path } } : { loading: null, error: { message: m.message, path: m.path } });
+      case "file_error": // the server says which request failed; a search and an open can be in flight together
+        this.setFiles({ ...(m.op === "search" ? { searching: null } : { loading: null }), error: { message: m.message, path: m.path } });
         break;
       case "search": this.setFiles({ search: m, searching: null }); break;
       case "ports": this.setFiles({ ports: { ...m, at: Date.now() } }); break;
       case "checks": {
+        if (m.error) {
+          this.set({ checks: { ...this.snap.checks, running: false } });
+          this.localError(m.error, "Run them again. If it repeats, ask Claude: the error is in Studio's log.");
+          break;
+        }
         const bad = (m.results as CheckResult[]).filter((r) => r.status === "fail").length;
         const warn = (m.results as CheckResult[]).filter((r) => r.status === "warn").length;
         this.set({

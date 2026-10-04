@@ -58,9 +58,9 @@ export function Sidebar() {
         {REFERENCE.map(item)}
       </div>
       <div className="sidebar-foot">
-        <div className={`link-status tone-${link === "open" ? "ok" : link === "refused" ? "danger" : "warn"}`}>
+        <div className={`link-status tone-${link === "open" ? "ok" : link === "refused" || link === "down" ? "danger" : "warn"}`}>
           <span className="dot" />
-          {link === "open" ? "Connected to Studio" : link === "refused" ? "Not authorised" : "Reconnecting"}
+          {link === "open" ? "Connected to Studio" : link === "refused" ? "Not authorised" : link === "down" ? "Studio is not running" : "Reconnecting"}
         </div>
         <button className="btn btn-ghost btn-sm theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}>

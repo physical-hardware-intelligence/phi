@@ -3,6 +3,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ComponentType } from "react";
 import { studio, useStudio, type CheckResult, type CheckStatus } from "../lib/studio";
+import { Notices } from "../components/Notices";
 
 const GROUPS: Array<{ key: CheckResult["group"]; sub: string }> = [
   { key: "This Mac", sub: "Software, rig config, ports, calibration files, disk" },
@@ -34,6 +35,7 @@ export function Checks() {
   const bad = count("fail") + count("warn");
   return (
     <div className="page">
+      <Notices />
       <section className="panel checks-head">
         <div className="checks-verdict">
           {!c.results ? (

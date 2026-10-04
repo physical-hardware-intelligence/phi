@@ -18,6 +18,7 @@ aiohttp = pytest.importorskip("aiohttp")
 pytest.importorskip("PIL")
 from aiohttp.test_utils import TestServer  # noqa: E402
 
+import phi.studio.server as server_mod  # noqa: E402
 from phi.studio.server import Studio  # noqa: E402
 
 
@@ -533,7 +534,35 @@ def test_checks_run_from_any_window_and_reach_the_assistant(tmp_path: Path, monk
             ctx = json.loads((await until(b, lambda d: d["type"] == "assist_context"))["text"])
             titles = [r["title"] for r in ctx["checks"]["not_passing"]]
             assert "Claude assistant" in titles and "Rig config" in titles
+            assert ctx["checks"]["minutes_ago"] == 0 and "not live" in ctx["checks"]["note"]
             await a.close()
+            await b.close()
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+def test_a_read_only_command_that_crashes_still_answers_its_window(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # WHY: an uncaught error here left the window's spinner up for good (review, 2026-10-04).
+    def boom(_):
+        raise RuntimeError("probe exploded")
+
+    monkeypatch.setattr(server_mod, "run_checks", boom)
+
+    async def go() -> None:
+        studio, server, session = await started_with_code(tmp_path)
+        try:
+            b = await ws(session, server.port)
+            await b.send_str(json.dumps({"cmd": "checks_run"}))
+            got = await until(b, lambda d: d["type"] == "checks")
+            assert "probe exploded" in got["error"] and "results" not in got
+            await b.send_str(json.dumps({"cmd": "files_search", "query": ""}))
+            err = await until(b, lambda d: d["type"] == "file_error")
+            assert err["op"] == "search"
             await b.close()
         finally:
             await session.close()

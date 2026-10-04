@@ -38,10 +38,10 @@ export function TopBar({ title, sub, onStop }: { title: string; sub: string; onS
           </Tooltip.Root>
         )}
         <button className={`btn btn-sm ask-btn ${assist ? "is-on" : ""}`} onClick={() => studio.toggleAssistant()}
-          aria-pressed={assist} aria-keyshortcuts="Meta+J">
-          <MessageSquareText aria-hidden /> Ask Claude <span className="kbd">⌘J</span>
+          aria-pressed={assist} aria-keyshortcuts="Meta+J" aria-label="Ask Claude" title="Ask Claude (⌘J)">
+          <MessageSquareText aria-hidden /> <span className="ask-btn-label">Ask Claude</span> <span className="kbd">⌘J</span>
         </button>
-        <StatePill s={link === "open" ? state : null} />
+        <StatePill s={state} link={link} />
         {link === "open" && !control && (
           <button className="btn btn-sm" onClick={() => studio.send({ cmd: "take_control" })}>Take control</button>
         )}

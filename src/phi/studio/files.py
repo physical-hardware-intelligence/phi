@@ -25,6 +25,15 @@ SKIP_TOP = {"datasets", "data", "models", "outputs", "checkpoints", "wandb", "en
 SECRET = (".env", ".env.*", "*.env", "*token*", "*secret*", "*credential*", "*password*", "*.pem",
           "*.key", "*.p12", "id_rsa*", "id_ed25519*", ".netrc", ".ssh", ".git")  # fmt: skip
 # Files that answer "which port, which arm, which camera" on this machine, when a root has them.
+# Files git excludes, so the main checkout holds the real copy; any worktree copy is a leftover.
+MACHINE_FILES = ("robot-config.yaml",)
+
+
+def root_order(rel: str) -> tuple[str, ...]:
+    """Which roots to try first for a relative path. Docs: the running code's copy."""
+    return ("repo", "code") if rel in MACHINE_FILES else ("code", "repo")
+
+
 NOTES = (
     ("robot-config.yaml", "Rig config for this Mac"),
     ("configs/ports.local.sh", "Ports captured by capture-ports"),
@@ -111,7 +120,11 @@ class Files:
         if not isinstance(path, str) or not path:
             return None
         p = Path(path).expanduser()
-        for r in self.roots.values():
+        first = () if p.is_absolute() else root_order(p.as_posix())
+        for key in dict.fromkeys([*first, *self.roots]):
+            r = self.roots.get(key)
+            if r is None:
+                continue
             cand = p if p.is_absolute() else r.path / p
             try:
                 rel = cand.resolve().relative_to(r.path)
@@ -181,18 +194,15 @@ class Files:
 
     # -- what to show first -----------------------------------------------------------------------
     def notes(self) -> list[dict[str, Any]]:
-        out, seen = [], set()
-        for r in self.roots.values():
-            if r.key not in ("code", "repo"):
-                continue
-            for rel, label in NOTES:
-                p = r.path / rel
-                if rel not in seen and p.is_file():  # a doc in both checkouts: the running code's
-                    seen.add(rel)
-                    out.append({"root": r.key, "path": rel, "label": label,
-                                "mtime": p.stat().st_mtime})  # fmt: skip
-        order = [rel for rel, _ in NOTES]  # the rig config first, wherever it lives
-        return sorted(out, key=lambda n: order.index(n["path"]))
+        out = []
+        for rel, label in NOTES:  # in NOTES order: the rig config first
+            for key in root_order(rel):
+                r = self.roots.get(key)
+                if r is not None and (r.path / rel).is_file():
+                    out.append({"root": key, "path": rel, "label": label,
+                                "mtime": (r.path / rel).stat().st_mtime})  # fmt: skip
+                    break
+        return out
 
     def calibrations(self) -> list[dict[str, Any]]:
         r = self.roots.get("calibration")
