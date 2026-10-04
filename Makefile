@@ -1,6 +1,6 @@
 # Φ — one-command entrypoints. Run `make help` to see everything.
 # These are thin wrappers; the real work is LeRobot CLI commands documented in docs/.
-.PHONY: help setup install policies doctor lint test docs
+.PHONY: help setup install policies doctor lint test docs studio studio-web
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n",$$1,$$2}'
@@ -53,3 +53,10 @@ teleop:    ; @echo "See docs/robots/so-arm101/02-setup.md (lerobot-teleoperate)"
 record:    ; @echo "See docs/robots/so-arm101/03-teleop-and-data.md (lerobot-record)"
 train:     ; @echo "See docs/training/README.md (lerobot-train)"
 eval:      ; @echo "See docs/evaluation/README.md (lerobot-rollout)"
+
+# --- Phi Studio (local app). Building the UI needs Node 20+ once; running it does not. ---
+studio-web:  ## Build the Studio UI into src/phi/studio/static
+	cd studio/web && npm ci && npm run build
+
+studio:  ## Run Phi Studio on the mock rig (no arm needed)
+	conda run -n phi --no-capture-output phi studio --mock

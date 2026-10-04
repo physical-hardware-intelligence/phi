@@ -160,3 +160,27 @@ def test_unknown_command_is_an_error_not_a_crash() -> None:
     w, _, out = make()
     w.handle({"cmd": "self_destruct"})
     assert "self_destruct" in of(out, "error")[-1]["message"]
+
+
+def test_torque_is_reported_per_arm_and_survives_a_fault() -> None:
+    w, clock, out = armed()
+    w.handle({"cmd": "start", "activity": "teleop"})
+    run(w, clock, 0.5)
+    arm(w, "follower").inject("overload", joint="gripper")
+    run(w, clock, 0.5)
+    t = of(out, "telemetry")[-1]
+    assert of(out, "state")[-1]["state"] == "FAULT"
+    assert t["arms"]["follower"]["torque"] is True and t["arms"]["leader"]["torque"] is False
+
+
+def test_torque_off_is_allowed_during_a_fault_and_the_fault_stays() -> None:
+    # WHY: an overloaded gripper keeps squeezing while torque is on; the user must be able to let
+    # go.
+    w, clock, out = armed()
+    arm(w, "follower").inject("overload", joint="gripper")
+    run(w, clock, 0.5)
+    w.handle({"cmd": "release"})
+    run(w, clock, 0.1)
+    assert not arm(w, "follower").torque
+    assert of(out, "state")[-1]["state"] == "FAULT"
+    assert of(out, "telemetry")[-1]["arms"]["follower"]["torque"] is False

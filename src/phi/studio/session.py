@@ -19,13 +19,15 @@ from enum import Enum
 
 class State(Enum):
     # value: (label, tone, next action shown to the user)
-    DISCONNECTED = ("Disconnected", "neutral", "Connect the rig")
-    CONNECTED = ("Connected", "info", "Checking which arm is on which port")
-    IDENTIFIED = ("Identified", "info", "Confirm each arm's role and calibration")
-    READY = ("Ready", "ok", "Enable torque to start")
-    ARMED = ("Torque on", "warn", "Start teleop, a policy, or a replay")
-    MOVING = ("Moving", "active", "Stop with Esc")
-    STOPPED = ("Stopped", "warn", "Resume, or release torque")
+    # Labels, tones and priorities follow the robot-state legend in the Studio design brief
+    # (after Franka's light scheme): neutral idle, info holding, ok moving, warn attention.
+    DISCONNECTED = ("Offline", "neutral", "Connect the rig")
+    CONNECTED = ("Connecting", "info", "Reading each arm's identity")
+    IDENTIFIED = ("Confirm arms", "warn", "Check each arm's role and calibration, then confirm")
+    READY = ("Torque off", "neutral", "Enable torque to start")
+    ARMED = ("Holding", "info", "Start teleop, a policy, or a replay")
+    MOVING = ("Moving", "ok", "Stop with Esc")
+    STOPPED = ("Stopped", "warn", "Resume, or turn torque off")
     FAULT = ("Fault", "danger", "Read the fault, fix it, then clear")
 
     @property

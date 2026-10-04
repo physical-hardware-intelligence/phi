@@ -47,3 +47,7 @@ site/
 *.local
 # machine-specific config (e.g. configs/ports.local.sh — serial ports differ per laptop)
 *.local.sh
+
+# Phi Studio: frontend deps and build output (built by `make studio-web`)
+studio/web/node_modules/
+src/phi/studio/static/

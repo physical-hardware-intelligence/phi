@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import multiprocessing as mp
+import os
 import secrets
 import struct
 import threading
@@ -233,7 +234,9 @@ class Studio:
 
 
 def serve(spec: dict[str, Any], port: int = 8765, open_browser: bool = True) -> None:
-    studio = Studio(spec, port)
+    # WHY an env override: a fixed token lets a dev preview reload with the same URL.
+    # The default is a fresh random token per launch.
+    studio = Studio(spec, port, token=os.environ.get("PHI_STUDIO_TOKEN") or None)
     url = f"http://127.0.0.1:{port}/#token={studio.token}"
     print(f"Phi Studio on {url}\nCtrl+C stops Studio and releases torque.", flush=True)
     if open_browser:

@@ -61,6 +61,7 @@ class RigWorker:
         self.session = Session(on_change=lambda s: self.send({"type": "state", **s.snapshot()}))
         self.last_heartbeat = clock()
         self.dead: set[str] = set()  # arms whose bus stopped answering
+        self.torque: dict[str, bool] = {a.name: False for a in self.arms}
         self.health: dict[str, dict[str, JointHealth]] = {}
         self.identity: list[dict[str, Any]] = []
         self._ticks: deque[float] = deque(maxlen=int(loop_hz * 2))
@@ -110,7 +111,7 @@ class RigWorker:
     def _cmd_arm(self, msg: dict[str, Any]) -> None:
         self.session.armed()  # raises unless READY, before any torque write
         for f in self.followers:
-            f.set_torque(True)
+            self._set_torque(f, True)
         self.last_heartbeat = self.clock()
 
     def _cmd_start(self, msg: dict[str, Any]) -> None:
@@ -127,17 +128,23 @@ class RigWorker:
         if self.session.state in (State.MOVING, State.ARMED):
             self._freeze()
             self.session.stopped("user")
+        elif self.session.state is State.FAULT:
+            self._freeze()  # already frozen; Stop still acts while torque is on
 
     def _cmd_resume(self, msg: dict[str, Any]) -> None:
         self.session.resumed()
         self.last_heartbeat = self.clock()
 
     def _cmd_release(self, msg: dict[str, Any]) -> None:
-        if self.session.state not in (State.ARMED, State.STOPPED):
+        # WHY allowed in FAULT: an overloaded gripper keeps squeezing while torque is on.
+        faulted = self.session.state is State.FAULT
+        if not faulted and self.session.state not in (State.ARMED, State.STOPPED):
             self.session.released()  # raises with the reason
         for f in self.followers:
-            f.set_torque(False)
-        self.session.released()
+            if f.name not in self.dead:
+                self._set_torque(f, False)
+        if not faulted:
+            self.session.released()
 
     def _cmd_clear(self, msg: dict[str, Any]) -> None:
         self.session.cleared()
@@ -148,7 +155,7 @@ class RigWorker:
         for f in self.followers:
             if f.name not in self.dead:
                 try:
-                    f.set_torque(False)
+                    self._set_torque(f, False)
                 except ConnectionError:
                     pass
         self.session.disconnected()
@@ -179,6 +186,10 @@ class RigWorker:
         self.identity = out
         self.send({"type": "identity", "arms": out})  # before the state, so the UI has the matches
         self.session.identified()
+
+    def _set_torque(self, a: ArmBus, on: bool) -> None:
+        a.set_torque(on)
+        self.torque[a.name] = on
 
     def _freeze(self) -> None:
         """Goal = present position on every reachable follower with torque on. Torque stays on."""
@@ -231,7 +242,7 @@ class RigWorker:
         except ConnectionError as e:
             if current is not None:
                 self.dead.add(current.name)
-            self._fault(f"{current.name if current else 'bus'}: {e}")
+            self._fault(f"{current.name if current else 'A bus'} is not answering: {e}")
         self._cost_ms.append((time.perf_counter() - t_start) * 1e3)
         self._publish(pos)
 
@@ -253,6 +264,7 @@ class RigWorker:
             arms[a.name] = {
                 "role": a.role,
                 "online": a.name not in self.dead,
+                "torque": self.torque[a.name],
                 "pos": {j: round(v, 2) for j, v in pos.get(a.name, {}).items()},
                 "health": {j: {"load": round(x.load_pct, 1), "temp": round(x.temperature_c, 1),
                                "volt": round(x.voltage_v, 2), "faults": x.faults}

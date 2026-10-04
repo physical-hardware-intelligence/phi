@@ -96,7 +96,7 @@ class MockArm:
     # ----------------
     def _check(self) -> None:
         if self.unplugged:
-            raise ConnectionError(f"{self.name}: no status packet (port unplugged)")
+            raise ConnectionError("no status packet (port unplugged)")
 
     def _step(self) -> None:
         now = self.clock()  # type: ignore[operator]

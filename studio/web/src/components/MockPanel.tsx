@@ -1,0 +1,65 @@
+import { useState } from "react";
+import { JOINTS, studio, useStudio } from "../lib/studio";
+
+const KINDS = [
+  ["overload", "Overload a joint"],
+  ["overheat", "Overheat a joint"],
+  ["voltage", "Drop the supply voltage"],
+  ["unplug", "Unplug the arm"],
+] as const;
+
+// Mock rig only: inject the faults a real rig produces, to see how Studio reacts to each.
+export function MockPanel() {
+  const mock = useStudio((s) => s.mock);
+  const arms = useStudio((s) => s.identity);
+  const control = useStudio((s) => s.control);
+  const [arm, setArm] = useState("");
+  const [kind, setKind] = useState<string>("overload");
+  const [joint, setJoint] = useState<string>("gripper");
+  if (!mock || !arms.length) return null;
+  const target = arm || arms.find((a) => a.role === "follower")?.name || arms[0].name;
+
+  return (
+    <section className="panel mockpanel">
+      <div className="panel-head">
+        <h2>Fault drill</h2>
+        <span className="faint t-xs">mock rig only</span>
+      </div>
+      <div className="panel-body mock-form">
+        <label className="field">
+          <span className="field-label">Arm</span>
+          <select value={target} onChange={(e) => setArm(e.target.value)}>
+            {arms.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Fault</span>
+          <select value={kind} onChange={(e) => setKind(e.target.value)}>
+            {KINDS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+        </label>
+        {kind !== "unplug" && (
+          <label className="field">
+            <span className="field-label">Joint</span>
+            <select value={joint} onChange={(e) => setJoint(e.target.value)}>
+              {JOINTS.map((j) => <option key={j} value={j}>{j}</option>)}
+            </select>
+          </label>
+        )}
+        <div className="mock-buttons">
+          <button className="btn btn-sm" disabled={!control}
+            onClick={() => studio.send({ cmd: "inject", arm: target, kind, joint: kind === "unplug" ? undefined : joint })}>
+            Inject fault
+          </button>
+          <button className="btn btn-sm btn-ghost" disabled={!control}
+            onClick={() => arms.forEach((a) => {
+              studio.send({ cmd: "inject", arm: a.name, kind: "clear" });
+              studio.send({ cmd: "inject", arm: a.name, kind: "replug" });
+            })}>
+            Repair all
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}

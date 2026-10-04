@@ -1,0 +1,81 @@
+/* Design tokens. Values from the Studio design brief: neutral chrome (OKLCH hue 260, low chroma),
+   colour reserved for state, 4 px spacing scale, Inter + Geist Mono. Dark is the default theme
+   because camera tiles and plots fill most of the screen. */
+:root {
+  color-scheme: dark;
+  --bg-app: #131416;
+  --bg-panel: #18191b;
+  --bg-raised: #202224;
+  --bg-hover: #27292b;
+  --bg-selected: #26313f;
+  --border-subtle: #2f3033;
+  --border-control: #727578;
+  --text-primary: #f0f2f4;
+  --text-secondary: #bbbec2;
+  --text-tertiary: #9b9fa3;
+  --text-disabled: #67696c;
+  --focus-ring: #60aaf3;
+  --action-primary-bg: #f0f2f4;
+  --action-primary-fg: #131416;
+  --action-danger-bg: #c92f33;
+  --action-danger-fg: #fcfcfc;
+
+  --ok-solid: #51c672;    --ok-text: #83dc97;    --ok-subtle: #1a321f;
+  --info-solid: #53a3f2;  --info-text: #8cc3fc;  --info-subtle: #192d41;
+  --warn-solid: #f9b73f;  --warn-text: #fbc865;  --warn-subtle: #3b2a12;  --warn-on-solid: #24180a;
+  --danger-solid: #e24947; --danger-text: #ff9492; --danger-subtle: #451e1c;
+  --neutral-solid: #9b9fa3; --neutral-text: #bbbec2; --neutral-subtle: #202224;
+
+  --shadow-float: 0 0 0 1px var(--border-subtle);
+
+  --space-0-5: 2px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 40px; --space-8: 48px; --space-9: 64px;
+
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
+
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --dur-fast: 100ms; --dur-base: 150ms; --dur-enter: 200ms; --dur-panel: 240ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --ease-enter: cubic-bezier(0, 0, 0.38, 0.9);
+  --ease-exit: cubic-bezier(0.2, 0, 1, 0.9);
+
+  --topbar-h: 48px;
+  --sidebar-w: 208px;
+  --control-h: 32px;
+  --control-h-sm: 28px;
+  --row-h: 28px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-app: #f6f7f8;
+  --bg-panel: #ffffff;
+  --bg-raised: #ffffff;
+  --bg-hover: #eff0f2;
+  --bg-selected: #ddebfa;
+  --border-subtle: #e0e1e4;
+  --border-control: #8a8c90;
+  --text-primary: #17181b;
+  --text-secondary: #4d5054;
+  --text-tertiary: #63666b;
+  --text-disabled: #9c9ea2;
+  --focus-ring: #0076d3;
+  --action-primary-bg: #17181b;
+  --action-primary-fg: #ffffff;
+  --action-danger-bg: #d01c29;
+  --action-danger-fg: #ffffff;
+
+  --ok-solid: #25984d;    --ok-text: #0f6a31;    --ok-subtle: #e6fae9;
+  --info-solid: #007cd9;  --info-text: #005caa;  --info-subtle: #eaf5ff;
+  --warn-solid: #ca7904;  --warn-text: #905211;  --warn-subtle: #fff4d7;  --warn-on-solid: #301d0d;
+  --danger-solid: #db2b33; --danger-text: #b71824; --danger-subtle: #ffeeee;
+  --neutral-solid: #63666b; --neutral-text: #4d5054; --neutral-subtle: #eff0f2;
+
+  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-enter: 0ms; --dur-panel: 0ms; }
+}
