@@ -39,10 +39,13 @@ implementation separates them (`TransformerForDiffusion.get_optim_groups`);
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
-
-from lerobot.policies.diffusion.modeling_diffusion import DiffusionModel
+from lerobot.configs.policies import PreTrainedConfig
+from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.policies.diffusion.modeling_diffusion import DiffusionModel, DiffusionPolicy
 
 from phi.policies.transformer_for_diffusion import TransformerForDiffusion
 
@@ -170,12 +173,6 @@ def optim_groups(model: nn.Module, weight_decay: float = 1e-3) -> list[dict]:
 # lerobot's `get_policy_class` is a hardcoded if/elif chain with no plugin hook,
 # so it is patched below. Everything else is stock lerobot.
 # ─────────────────────────────────────────────────────────────────────────────
-
-from dataclasses import dataclass
-
-from lerobot.configs.policies import PreTrainedConfig
-from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
-from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
 
 
 @PreTrainedConfig.register_subclass("diffusion_transformer")

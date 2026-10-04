@@ -98,7 +98,9 @@ def verify(root: str, split: int | None = None) -> int:
 
     print("=== video integrity ===")
     for cam in cams:
-        refs = set(zip(meta[f"videos/{cam}/chunk_index"], meta[f"videos/{cam}/file_index"]))
+        refs = set(
+            zip(meta[f"videos/{cam}/chunk_index"], meta[f"videos/{cam}/file_index"], strict=False)
+        )
         disk = {
             (int(p.split("chunk-")[1][:3]), int(p.split("file-")[1][:3]))
             for p in glob.glob(f"{root}/videos/{cam}/**/*.mp4", recursive=True)

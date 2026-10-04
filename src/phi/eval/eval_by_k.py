@@ -70,24 +70,24 @@ from __future__ import annotations
 
 import argparse
 import csv
-import sys
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 
-import phi.policies.dp_transformer  # noqa: F401  -- registers diffusion_transformer
-import phi.policies.dp_patch  # noqa: F401  -- registers diffusion_patch
-# 🚨 BOTH imports are load-bearing HERE, in the module that runs. Registration fires
-# at import time and only affects the process that imports. Without the second line a
-# diffusion_patch checkpoint dies with a DecodingError naming every OTHER policy type,
-# which reads like a typo rather than a missing import. Cost 2 GPU jobs on 2026-08-15;
-# same root cause as e731502 (rollout scripts) and f2d3e6b (the trainer).
 # Module-level ON PURPOSE. These were function-local and a wrong module path
 # (lerobot.constants, which does not exist -- it is lerobot.utils.constants)
 # survived `--help` and only failed on a compute node. Import at module level so
 # any such error surfaces the moment the script is invoked at all.
 from lerobot.utils.constants import ACTION, OBS_IMAGES
+
+# 🚨 BOTH imports are load-bearing HERE, in the module that runs. Registration fires
+# at import time and only affects the process that imports. Without the dp_patch line a
+# diffusion_patch checkpoint dies with a DecodingError naming every OTHER policy type,
+# which reads like a typo rather than a missing import. Cost 2 GPU jobs on 2026-08-15;
+# same root cause as e731502 (rollout scripts) and f2d3e6b (the trainer).
+import phi.policies.dp_patch  # noqa: F401  -- registers diffusion_patch
+import phi.policies.dp_transformer  # noqa: F401  -- registers diffusion_transformer
 
 DEFAULT_BUCKETS = "0,2,5,10,15,20,30,40,50,60,70,80,90,95,99"
 
@@ -137,10 +137,10 @@ def loss_at_k(model, batch: dict, k: int, eps: torch.Tensor,
 
 def evaluate(checkpoint: Path, buckets: list[int], device: str, max_batches: int | None,
              seed: int) -> list[dict]:
+    import draccus
     from lerobot.configs.train import TrainPipelineConfig
     from lerobot.datasets.factory import make_train_eval_datasets
     from lerobot.policies.factory import get_policy_class, make_pre_post_processors
-    import draccus
 
     pm = (
         checkpoint / "pretrained_model"

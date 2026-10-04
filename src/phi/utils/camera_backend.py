@@ -46,6 +46,7 @@ from typing import Any
 from lerobot.cameras.configs import ColorMode
 from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
 
+# isort: split
 # Re-exported so callers never `import cv2` themselves. By the time lerobot has
 # been imported, the MSMF variable is already set; importing cv2 first is what
 # defeats it.

@@ -2,8 +2,10 @@
 # Copyright (c) 2023 Columbia Artificial Intelligence and Robotics Lab
 
 import math
+
 import torch
 import torch.nn as nn
+
 
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):

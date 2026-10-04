@@ -39,12 +39,11 @@ import einops
 import torch
 import torch.nn as nn
 import torchvision
-
 from lerobot.configs.policies import PreTrainedConfig
-from lerobot.utils.constants import OBS_IMAGES, OBS_STATE
 from lerobot.policies.diffusion.modeling_diffusion import DiffusionModel, DiffusionPolicy
+from lerobot.utils.constants import OBS_IMAGES, OBS_STATE
 
-from phi.policies.dp_transformer import DiffusionTransformerConfig, DiffusionTransformerPolicy
+from phi.policies.dp_transformer import DiffusionTransformerConfig
 from phi.policies.transformer_for_diffusion import TransformerForDiffusion
 
 # DINOv2's own preprocessing constants (models/encoder/dino.py in the reference).
@@ -62,7 +61,7 @@ class PatchEncoder(nn.Module):
     uncontrolled variable in an A/B whose whole point is the encoder swap.
     """
 
-    def __init__(self, config: "DiffusionPatchConfig") -> None:
+    def __init__(self, config: DiffusionPatchConfig) -> None:
         super().__init__()
         if config.resize_shape is not None:
             self.resize = torchvision.transforms.Resize(config.resize_shape)
@@ -182,7 +181,7 @@ class DiffusionPatchModel(DiffusionModel):
     by `self.unet(...)`. Nothing indexes it, so returning 3-D instead of 2-D is fine.
     """
 
-    def __init__(self, config: "DiffusionPatchConfig", **backbone_kwargs) -> None:
+    def __init__(self, config: DiffusionPatchConfig, **backbone_kwargs) -> None:
         super().__init__(config)
         # The parent built 3 ResNet-18s to compute a global_cond_dim we do not use.
         # Cheap and transient, and it keeps us from forking lerobot's __init__.

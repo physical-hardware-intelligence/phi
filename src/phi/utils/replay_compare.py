@@ -194,7 +194,7 @@ class Session:
         self.robot.send_action({f"{j}.pos": float(cmd[k]) for k, j in enumerate(JOINTS)})
 
 
-def log_recorded(session: Session, ep: "Episode", idx: int) -> None:
+def log_recorded(session: Session, ep: Episode, idx: int) -> None:
     frame = ep.frame(idx)
     for cam in ep.recorded_cams:
         img = (frame[f"observation.images.{cam}"].permute(1, 2, 0).numpy() * 255).astype(np.uint8)
@@ -204,7 +204,7 @@ def log_recorded(session: Session, ep: "Episode", idx: int) -> None:
 class Episode:
     """One episode's frames, loaded lazily and cached across navigation."""
 
-    _cache: dict[tuple[str, int], "Episode"] = {}
+    _cache: dict[tuple[str, int], Episode] = {}
 
     def __init__(self, dataset: str, root: str | None, index: int) -> None:
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -217,7 +217,7 @@ class Episode:
                               if k.startswith("observation.images.")]
 
     @classmethod
-    def get(cls, dataset: str, root: str | None, index: int) -> "Episode":
+    def get(cls, dataset: str, root: str | None, index: int) -> Episode:
         key = (dataset, index)
         if key not in cls._cache:
             print(f"  loading episode {index} ...", flush=True)
@@ -367,8 +367,8 @@ def main() -> None:
 
     import rerun as rr
     from lerobot.cameras.opencv import OpenCVCameraConfig
-    from lerobot.robots.so_follower import SO101FollowerConfig
     from lerobot.robots import make_robot_from_config
+    from lerobot.robots.so_follower import SO101FollowerConfig
     from lerobot.utils.robot_utils import precise_sleep
 
     live_cams = args.cameras or {}

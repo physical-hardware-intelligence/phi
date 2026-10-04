@@ -17,9 +17,12 @@ DP-CNN comparison honest, differing only in the denoising backbone.
    gives you the UNet with none of these hyperparameters applied.
 """
 
-import phi.policies.dp_transformer  # noqa: F401  -- import registers the policy
-import phi.policies.dp_patch  # noqa: F401  -- ditto; `diffusion_patch` needs this HERE
 from lerobot.scripts.lerobot_train import train
+
+# WHY after lerobot_train is fine: @parser.wrap parses the CLI when train() is called,
+# not at import (lerobot/configs/parser.py:286-315), so registering here is in time.
+import phi.policies.dp_patch  # noqa: F401  -- registers diffusion_patch; needs this HERE
+import phi.policies.dp_transformer  # noqa: F401  -- import registers the policy
 
 # 🚨 BOTH imports must live in THIS module, not merely in a preflight check.
 # `@PreTrainedConfig.register_subclass` fires at import time, and draccus builds

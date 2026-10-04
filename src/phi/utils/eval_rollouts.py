@@ -47,11 +47,11 @@ import csv
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from phi.utils.camera_backend import cv2, open_camera
 import numpy as np
 
+from phi.utils.camera_backend import cv2, open_camera
 from phi.utils.camera_realign import choose, discover
 
 # (score, key, label). Verbatim from the blog — see the module docstring.
@@ -344,7 +344,7 @@ def report() -> int:
             print(f"    generalisation gap (control - heldout mean progress): "
                   f"{by_split['train'] - by_split['heldout']:+.3f}")
         mr = [r for r in mr if r.get("split", "heldout") == "heldout"] or mr
-        print(f"    -- breakdown below is HELD-OUT only --")
+        print("    -- breakdown below is HELD-OUT only --")
         # Never pool: a model can be fine on two objects and hopeless on the third.
         for label, field in (("by object", "object"), ("by container", "container")):
             print(f"    {label}:")
@@ -428,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
             obj, cont = block_of(e)
             tag = "CONTROL (trained on)" if split_of(e) == "train" else "held out"
             print(f"  episode {e:3d}   {obj:18s} -> {cont:15s} [{tag}]")
-        print(f"\nrubric: " + " · ".join(f"{s:.1f} {lb}" for s, _, lb in RUBRIC[1:]))
+        print("\nrubric: " + " · ".join(f"{s:.1f} {lb}" for s, _, lb in RUBRIC[1:]))
         return 0
 
     if not args.model or not args.dataset:
@@ -486,7 +486,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             label, score, approach, hes, notes = scored
             append_row({
-                "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
                 "model": args.model, "episode": ep, "split": split_of(ep),
                 "object": obj, "container": cont,
                 "stage": label, "score": score, "grasp_approach": approach,

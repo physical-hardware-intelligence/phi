@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"connecting to {args.port} with cameras {sorted(cams) or 'none'} ...")
         robot.connect()
     else:
-        from phi.utils.camera_backend import cv2, open_camera
+        from phi.utils.camera_backend import open_camera
         for n, i in cams.items():
             c = open_camera(i, width=640, height=480)
             raw_caps[n] = c
@@ -232,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         for at, what, dt in sorted(stalls, key=lambda x: -x[2])[:10]:
             print(f"   t={at:6.1f}s   {what:16s} {dt:8.1f} ms")
         worst = {}
-        for _, what, dt in stalls:
+        for _, what, _ in stalls:
             worst[what] = worst.get(what, 0) + 1
         print(f"\nstalls by component: {dict(sorted(worst.items(), key=lambda x: -x[1]))}")
         print("\nReading it:")

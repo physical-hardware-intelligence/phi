@@ -19,12 +19,13 @@
 #     paper / wrapper  n_layer=8   n_head=4   n_emb=256   causal_attn=True
 # ─────────────────────────────────────────────────────────────────────────────
 
-from typing import Union, Optional, Tuple
 import logging
+
 import torch
 import torch.nn as nn
-from phi.policies.positional_embedding import SinusoidalPosEmb
+
 from phi.policies.module_attr_mixin import ModuleAttrMixin
+from phi.policies.positional_embedding import SinusoidalPosEmb
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ class TransformerForDiffusion(ModuleAttrMixin):
             mask = (
                 mask.float()
                 .masked_fill(mask == 0, float('-inf'))
-                .masked_fill(mask == 1, float(0.0))
+                .masked_fill(mask == 1, 0.0)
             )
             self.register_buffer("mask", mask)
             
@@ -178,7 +179,7 @@ class TransformerForDiffusion(ModuleAttrMixin):
                 mask = (
                     allowed.float()
                     .masked_fill(~allowed, float('-inf'))
-                    .masked_fill(allowed, float(0.0))
+                    .masked_fill(allowed, 0.0)
                 )
                 self.register_buffer('memory_mask', mask)
             else:
@@ -243,7 +244,7 @@ class TransformerForDiffusion(ModuleAttrMixin):
             # no param
             pass
         else:
-            raise RuntimeError("Unaccounted module {}".format(module))
+            raise RuntimeError(f"Unaccounted module {module}")
     
     def get_optim_groups(self, weight_decay: float=1e-3):
         """
@@ -261,8 +262,8 @@ class TransformerForDiffusion(ModuleAttrMixin):
         whitelist_weight_modules = (torch.nn.Linear, torch.nn.MultiheadAttention)
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
         for mn, m in self.named_modules():
-            for pn, p in m.named_parameters():
-                fpn = "%s.%s" % (mn, pn) if mn else pn  # full param name
+            for pn, _ in m.named_parameters():
+                fpn = f"{mn}.{pn}" if mn else pn  # full param name
 
                 if pn.endswith("bias"):
                     # all biases will not be decayed
@@ -289,11 +290,12 @@ class TransformerForDiffusion(ModuleAttrMixin):
         union_params = decay | no_decay
         assert (
             len(inter_params) == 0
-        ), "parameters %s made it into both decay/no_decay sets!" % (str(inter_params),)
+        ), f"parameters {inter_params} made it into both decay/no_decay sets!"
         assert (
             len(param_dict.keys() - union_params) == 0
-        ), "parameters %s were not separated into either decay/no_decay set!" % (
-            str(param_dict.keys() - union_params),
+        ), (
+            f"parameters {param_dict.keys() - union_params} were not separated into either "
+            "decay/no_decay set!"
         )
 
         # create the pytorch optimizer object
@@ -313,7 +315,7 @@ class TransformerForDiffusion(ModuleAttrMixin):
     def configure_optimizers(self, 
             learning_rate: float=1e-4, 
             weight_decay: float=1e-3,
-            betas: Tuple[float, float]=(0.9,0.95)):
+            betas: tuple[float, float]=(0.9,0.95)):
         optim_groups = self.get_optim_groups(weight_decay=weight_decay)
         optimizer = torch.optim.AdamW(
             optim_groups, lr=learning_rate, betas=betas
@@ -322,8 +324,8 @@ class TransformerForDiffusion(ModuleAttrMixin):
 
     def forward(self, 
         sample: torch.Tensor, 
-        timestep: Union[torch.Tensor, float, int], 
-        cond: Optional[torch.Tensor]=None, **kwargs):
+        timestep: torch.Tensor | float | int, 
+        cond: torch.Tensor | None=None, **kwargs):
         """
         x: (B,T,input_dim)
         timestep: (B,) or int, diffusion step
@@ -410,11 +412,11 @@ def test():
         # time_as_cond=False,
         # n_cond_layers=4
     )
-    opt = transformer.configure_optimizers()
+    transformer.configure_optimizers()
 
     timestep = torch.tensor(0)
     sample = torch.zeros((4,8,16))
-    out = transformer(sample, timestep)
+    transformer(sample, timestep)
     
 
     # GPT with time embedding and obs cond
@@ -428,12 +430,12 @@ def test():
         # time_as_cond=False,
         # n_cond_layers=4
     )
-    opt = transformer.configure_optimizers()
+    transformer.configure_optimizers()
     
     timestep = torch.tensor(0)
     sample = torch.zeros((4,8,16))
     cond = torch.zeros((4,4,10))
-    out = transformer(sample, timestep, cond)
+    transformer(sample, timestep, cond)
 
     # GPT with time embedding and obs cond and encoder
     transformer = TransformerForDiffusion(
@@ -446,12 +448,12 @@ def test():
         # time_as_cond=False,
         n_cond_layers=4
     )
-    opt = transformer.configure_optimizers()
+    transformer.configure_optimizers()
     
     timestep = torch.tensor(0)
     sample = torch.zeros((4,8,16))
     cond = torch.zeros((4,4,10))
-    out = transformer(sample, timestep, cond)
+    transformer(sample, timestep, cond)
 
     # BERT with time embedding token
     transformer = TransformerForDiffusion(
@@ -464,9 +466,9 @@ def test():
         time_as_cond=False,
         # n_cond_layers=4
     )
-    opt = transformer.configure_optimizers()
+    transformer.configure_optimizers()
 
     timestep = torch.tensor(0)
     sample = torch.zeros((4,8,16))
-    out = transformer(sample, timestep)
+    transformer(sample, timestep)
 

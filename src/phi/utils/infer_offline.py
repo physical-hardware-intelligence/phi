@@ -133,7 +133,7 @@ def main() -> None:
 
     q, r = run(False), run(True)
 
-    print(f"  |commanded - human|, mean over the episode")
+    print("  |commanded - human|, mean over the episode")
     print(f"  {'joint':16s} {'queue (the robot)':>20s} "
           f"{'fresh (1-step)':>18s} {'staleness cost':>16s}")
     print("  " + "-" * 72)

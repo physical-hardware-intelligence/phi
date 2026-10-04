@@ -117,7 +117,7 @@ def check_port(port: str, force: bool) -> None:
         return
     _fail(
         f"no such device: {port}\n"
-        + (f"    USB serial devices visible now:\n"
+        + ("    USB serial devices visible now:\n"
            + "\n".join(f"      {c}" for c in candidates) if candidates
            else "    NO USB serial devices are visible at all — is the arm plugged in and powered?")
         + "\n    To find it:  run `lerobot-find-port` ON ITS OWN (it is interactive and"
@@ -301,12 +301,13 @@ def build_config(args, cameras: dict[str, int | str]):
     # MUST precede PreTrainedConfig.from_pretrained. That call resolves the config's
     # "type" field through draccus's choice registry, and `diffusion_transformer` only
     # enters that registry when the @PreTrainedConfig.register_subclass decorator in
-    # dp_transformer.py executes -- i.e. on import. Without this line, loading any
-    # DP-transformer checkpoint dies with:
+    # dp_transformer.py executes -- i.e. on import. Without the dp_transformer line, loading
+    # any DP-transformer checkpoint dies with:
     #     DecodingError: Couldn't find a choice class for 'diffusion_transformer'
+    # The dp_patch line does the same for diffusion_patch.
     # Harmless for ACT/DP checkpoints; it only adds a registry entry.
+    import phi.policies.dp_patch  # noqa: F401
     import phi.policies.dp_transformer  # noqa: F401
-    import phi.policies.dp_patch  # noqa: F401  -- ditto for diffusion_patch
 
     policy_cfg = PreTrainedConfig.from_pretrained(args.model, revision=args.revision)
     policy_cfg.pretrained_path = args.model

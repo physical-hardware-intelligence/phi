@@ -60,8 +60,9 @@ import os
 import sys
 from dataclasses import dataclass
 
-from phi.utils.camera_backend import cv2, open_camera
 import numpy as np
+
+from phi.utils.camera_backend import cv2, open_camera
 
 # Physical camera name -> dataset key, per dataset. Substring match on the
 # dataset directory name; first hit wins. Anything not listed uses IDENTITY,
