@@ -218,8 +218,8 @@ def main(argv: list[str] | None = None) -> int:
         report(f"camera {n} read", xs, budget)
     if any(fresh.values()):
         print("\n  DELIVERED frame rate (how often the frame actually changed):")
-        for n, c in fresh.items():
-            rate = c / args.seconds
+        for n, count in fresh.items():
+            rate = count / args.seconds
             flag = "  <-- below target" if rate < args.fps * 0.9 else ""
             print(f"    {n:6s} {rate:5.1f} fps of {args.fps}{flag}")
     report("whole tick", tick_ms, budget)
@@ -231,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{len(stalls)} stalls over budget. Worst 10:")
         for at, what, dt in sorted(stalls, key=lambda x: -x[2])[:10]:
             print(f"   t={at:6.1f}s   {what:16s} {dt:8.1f} ms")
-        worst = {}
+        worst: dict[str, int] = {}
         for _, what, _ in stalls:
             worst[what] = worst.get(what, 0) + 1
         print(f"\nstalls by component: {dict(sorted(worst.items(), key=lambda x: -x[1]))}")

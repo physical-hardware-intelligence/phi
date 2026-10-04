@@ -61,6 +61,9 @@ class PatchEncoder(nn.Module):
     uncontrolled variable in an A/B whose whole point is the encoder swap.
     """
 
+    _mean: torch.Tensor  # buffers registered in __init__
+    _std: torch.Tensor
+
     def __init__(self, config: DiffusionPatchConfig) -> None:
         super().__init__()
         if config.resize_shape is not None:
@@ -181,6 +184,9 @@ class DiffusionPatchModel(DiffusionModel):
     by `self.unet(...)`. Nothing indexes it, so returning 3-D instead of 2-D is fine.
     """
 
+    rgb_encoder: nn.Module  # the parent's ResNets until __init__ swaps in PatchEncoder
+    unet: nn.Module
+
     def __init__(self, config: DiffusionPatchConfig, **backbone_kwargs) -> None:
         super().__init__(config)
         # The parent built 3 ResNet-18s to compute a global_cond_dim we do not use.
@@ -204,6 +210,7 @@ class DiffusionPatchModel(DiffusionModel):
                 causal_attn=True, time_as_cond=True, obs_as_cond=True,
                 n_patches=self.tokens_per_step,
             )
+            assert probe.memory_mask is not None  # causal_attn with obs_as_cond builds it
             reachable = int((probe.memory_mask == 0.0).any(dim=0).sum())
             if reachable != probe.T_cond:
                 raise RuntimeError(

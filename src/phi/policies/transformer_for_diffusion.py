@@ -30,11 +30,15 @@ from phi.policies.positional_embedding import SinusoidalPosEmb
 logger = logging.getLogger(__name__)
 
 class TransformerForDiffusion(ModuleAttrMixin):
+    # Registered as buffers in __init__ when causal_attn is set, else None.
+    mask: torch.Tensor | None
+    memory_mask: torch.Tensor | None
+
     def __init__(self,
             input_dim: int,
             output_dim: int,
             horizon: int,
-            n_obs_steps: int = None,
+            n_obs_steps: int | None = None,
             cond_dim: int = 0,
             n_layer: int = 12,
             n_head: int = 12,
@@ -75,14 +79,14 @@ class TransformerForDiffusion(ModuleAttrMixin):
 
         # cond encoder
         self.time_emb = SinusoidalPosEmb(n_emb)
-        self.cond_obs_emb = None
+        self.cond_obs_emb: nn.Module | None = None
         
         if obs_as_cond:
             self.cond_obs_emb = nn.Linear(cond_dim, n_emb)
 
-        self.cond_pos_emb = None
-        self.encoder = None
-        self.decoder = None
+        self.cond_pos_emb: nn.Parameter | None = None
+        self.encoder: nn.Module | None = None
+        self.decoder: nn.Module | None = None
         encoder_only = False
         if T_cond > 0:
             self.cond_pos_emb = nn.Parameter(torch.zeros(1, T_cond, n_emb))
@@ -334,11 +338,11 @@ class TransformerForDiffusion(ModuleAttrMixin):
         """
         # 1. time
         timesteps = timestep
-        if not torch.is_tensor(timesteps):
+        if not isinstance(timesteps, torch.Tensor):  # what torch.is_tensor checks
             # TODO: this requires sync between CPU and GPU. So try to pass timesteps as tensors
             # if you can
             timesteps = torch.tensor([timesteps], dtype=torch.long, device=sample.device)
-        elif torch.is_tensor(timesteps) and len(timesteps.shape) == 0:
+        elif len(timesteps.shape) == 0:
             timesteps = timesteps[None].to(sample.device)
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
         timesteps = timesteps.expand(sample.shape[0])
@@ -357,6 +361,7 @@ class TransformerForDiffusion(ModuleAttrMixin):
             ]  # each position maps to a (learnable) vector
             x = self.drop(token_embeddings + position_embeddings)
             # (B,T+1,n_emb)
+            assert self.encoder is not None  # encoder_only always builds it
             x = self.encoder(src=x, mask=self.mask)
             # (B,T+1,n_emb)
             x = x[:,1:,:]
@@ -365,10 +370,14 @@ class TransformerForDiffusion(ModuleAttrMixin):
             # encoder
             cond_embeddings = time_emb
             if self.obs_as_cond:
+                assert self.cond_obs_emb is not None  # built whenever obs_as_cond
                 cond_obs_emb = self.cond_obs_emb(cond)
                 # (B,To,n_emb)
                 cond_embeddings = torch.cat([cond_embeddings, cond_obs_emb], dim=1)
             tc = cond_embeddings.shape[1]
+            # WHY these hold: without encoder_only, T_cond > 0, so __init__ built all three
+            assert self.cond_pos_emb is not None
+            assert self.encoder is not None and self.decoder is not None
             position_embeddings = self.cond_pos_emb[
                 :, :tc, :
             ]  # each position maps to a (learnable) vector

@@ -106,11 +106,11 @@ class DiffusionTransformerModel(DiffusionModel):
     comparison differs ONLY in the denoising backbone.
     """
 
+    unet: nn.Module  # the parent's UNet until __init__ swaps in the transformer
+
     def __init__(self, config, **backbone_kwargs) -> None:
         super().__init__(config)
-        global_cond_dim = (
-            self.unet.global_cond_dim if hasattr(self.unet, "global_cond_dim") else None
-        )
+        global_cond_dim = getattr(self.unet, "global_cond_dim", None)
         if global_cond_dim is None:
             # Recompute it the way DiffusionModel does, so we do not depend on a private attr.
             global_cond_dim = config.robot_state_feature.shape[0]

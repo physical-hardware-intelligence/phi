@@ -352,7 +352,7 @@ def report() -> int:
                 n, sr, mp = agg([r for r in mr if r[field] == v])
                 print(f"      {v:20s} n={n:3d}   success {sr:5.0%}   mean progress {mp:.3f}")
         hes = sum(1 for r in mr if r["hesitated"] == "y")
-        appr = {}
+        appr: dict[str, int] = {}
         for r in mr:
             appr[r["grasp_approach"]] = appr.get(r["grasp_approach"], 0) + 1
         print(f"    hesitated at start: {hes}/{len(mr)}")

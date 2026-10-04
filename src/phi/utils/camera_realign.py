@@ -62,7 +62,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from phi.utils.camera_backend import cv2, open_camera
+from phi.utils.camera_backend import _Cam, cv2, open_camera
 
 # Physical camera name -> dataset key, per dataset. Substring match on the
 # dataset directory name; first hit wins. Anything not listed uses IDENTITY,
@@ -132,7 +132,7 @@ def discover() -> list[Dataset]:
     to notice them.
     """
     home = lerobot_home()
-    found: list[Dataset] = []
+    found: list[Dataset | None] = []  # _read gives None for an unreadable dataset
 
     for info_path in glob.glob(os.path.join(home, "*", "*", "meta", "info.json")):
         root = os.path.dirname(os.path.dirname(info_path))
@@ -314,7 +314,9 @@ def offset(
     squinting at a blend. Returns (dx, dy, response); response near 0 means the
     two images have little in common and the offset is not trustworthy.
     """
-    (dx, dy), resp = cv2.phaseCorrelate(np.float32(ref_gray), np.float32(live_gray), window)
+    (dx, dy), resp = cv2.phaseCorrelate(
+        ref_gray.astype(np.float32), live_gray.astype(np.float32), window
+    )
     return dx, dy, resp
 
 
@@ -423,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
 
     refs = reference_frames(ds, names, args.episode, frame)
 
-    caps = {}
+    caps: dict[str, _Cam] = {}
     for name, idx in feeds:
         cap = open_camera(idx, width=args.width, height=args.height, fps=args.fps)
         if not cap.isOpened():
