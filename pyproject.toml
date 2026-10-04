@@ -16,6 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff>=0.6", "mypy>=1.11", "pytest>=8.0"]
+# Phi Studio (local app). LeRobot comes from the env files, like everywhere else in phi.
+studio = ["aiohttp>=3.9", "numpy>=1.26", "pillow>=10.0", "pyserial>=3.5"]
 
 [project.scripts]
 phi = "phi.cli:app"

@@ -24,5 +24,21 @@ def where(stage: str) -> None:
     typer.echo(pages.get(stage, "unknown stage — try: setup|data|train|eval|deploy"))
 
 
+@app.command()
+def studio(
+    mock: bool = typer.Option(True, "--mock/--hardware", help="Mock rig, or real arms."),
+    pairs: int = typer.Option(1, min=1, max=2, help="Leader/follower pairs: 1, or 2 for bimanual."),
+    port: int = typer.Option(8765, help="Local port. Studio binds 127.0.0.1 only."),
+    browser: bool = typer.Option(True, help="Open the browser."),
+) -> None:
+    """Phi Studio: set up, calibrate, teleoperate, record, and run policies from a local web app."""
+    if not mock:
+        typer.echo("The hardware backend is not built yet. Run with --mock for now.", err=True)
+        raise typer.Exit(1)
+    from phi.studio.server import serve
+
+    serve({"kind": "mock", "pairs": pairs}, port=port, open_browser=browser)
+
+
 if __name__ == "__main__":
     app()

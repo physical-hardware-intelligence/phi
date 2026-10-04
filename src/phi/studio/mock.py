@@ -72,6 +72,7 @@ class MockArm:
     torque: bool = False
     faults: dict[str, int] = field(default_factory=dict)
     unplugged: bool = False
+    scripted: bool = True  # leader follows the scripted hand
 
     def __post_init__(self) -> None:
         self._cal = _calibration(self.seed)
@@ -101,6 +102,8 @@ class MockArm:
         now = self.clock()  # type: ignore[operator]
         dt, self._t = now - self._t, now
         if self.role == "leader" and not self.torque:
+            if not self.scripted:
+                return
             s = now - self._t0
             for i, j in enumerate(JOINTS):
                 amp = 30.0 if j != "gripper" else 20.0
@@ -195,6 +198,10 @@ class MockCamera:
 class MockRig:
     arms: list[MockArm]
     cameras: list[MockCamera]
+
+    def calibration_files(self) -> dict[str, Calibration]:
+        """What a calibration directory would hold for these arms: each arm's own file."""
+        return {a.name: a._cal for a in self.arms}
 
 
 def mock_rig(
