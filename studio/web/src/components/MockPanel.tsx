@@ -6,6 +6,7 @@ const KINDS = [
   ["overheat", "Overheat a joint"],
   ["voltage", "Drop the supply voltage"],
   ["unplug", "Unplug the arm"],
+  ["swap", "Swap its cable with its pair's"],
 ] as const;
 
 // Mock rig only: inject the faults a real rig produces, to see how Studio reacts to each.
@@ -38,7 +39,7 @@ export function MockPanel() {
             {KINDS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </select>
         </label>
-        {kind !== "unplug" && (
+        {kind !== "unplug" && kind !== "swap" && (
           <label className="field">
             <span className="field-label">Joint</span>
             <select value={joint} onChange={(e) => setJoint(e.target.value)}>
@@ -48,7 +49,7 @@ export function MockPanel() {
         )}
         <div className="mock-buttons">
           <button className="btn btn-sm" disabled={!control}
-            onClick={() => studio.send({ cmd: "inject", arm: target, kind, joint: kind === "unplug" ? undefined : joint })}>
+            onClick={() => studio.send({ cmd: "inject", arm: target, kind, joint: kind === "unplug" || kind === "swap" ? undefined : joint })}>
             Inject fault
           </button>
           <button className="btn btn-sm btn-ghost" disabled={!control}

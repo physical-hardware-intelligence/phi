@@ -7,8 +7,9 @@ Security, because this socket can move motors:
   * the WebSocket needs the per-launch token, an allowed Origin, and an allowed Host (DNS rebinding)
   * no CORS headers, so no other site's page can read responses
 
-Control: one window holds control; any window may Stop. Only the controlling window's heartbeats
-keep motion alive, so closing it stops the arm within the worker's heartbeat timeout.
+Control: one window holds control; any window may Stop. Control changing hands stops the rig:
+closing or reloading the controlling window, or another window taking control, sends Stop at
+once. The worker's heartbeat timeout is the backstop for a window that hangs without closing.
 """
 
 from __future__ import annotations
@@ -176,7 +177,8 @@ class Studio:
             return f"host {request.host!r} not allowed"
         if request.headers.get("Origin") not in self.allowed_origins:
             return "origin not allowed"
-        if not secrets.compare_digest(request.query.get("token", ""), self.token):
+        # WHY bytes: compare_digest raises TypeError on non-ASCII str, which would be a 500.
+        if not secrets.compare_digest(request.query.get("token", "").encode(), self.token.encode()):
             return "bad or missing token"
         return None
 
@@ -203,7 +205,10 @@ class Studio:
         finally:
             self.clients.discard(client)
             if self.controller is client:
-                self.controller = None  # heartbeats stop; the worker stops motion
+                # WHY stop now, not on the heartbeat timeout: a reload reconnects and beats again
+                # within 1 s, so the timeout alone would let motion run on.
+                self.to_worker({"cmd": "stop", "reason": "window closed"})
+                self.controller = None
                 for other in self.clients:
                     other.push({"type": "control", "available": True})
             sender.cancel()
@@ -214,10 +219,13 @@ class Studio:
             msg = json.loads(data)
             cmd = msg["cmd"]
         except (ValueError, KeyError, TypeError):
+            cmd = None
+        if not isinstance(cmd, str):
             client.push({"type": "error", "message": "malformed message", "fix": ""})
             return
         if cmd == "take_control":
             if self.controller is not None and self.controller is not client:
+                self.to_worker({"cmd": "stop", "reason": "control moved"})
                 self.controller.push({"type": "control", "control": False})
             self.controller = client
             client.push({"type": "control", "control": True})

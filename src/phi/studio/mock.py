@@ -2,8 +2,10 @@
 flow.
 
 Behaviour, so tests and members without an arm see what a real rig would do:
-  * a follower with torque on moves toward its goal at a capped joint speed; with torque off it
-    ignores goals
+  * a follower with torque on moves toward its goal at a capped joint speed. The goal register
+    keeps its value with torque off, so enabling torque drives to whatever goal it holds. That is
+    the worst case; whether an STS3215 does it is unverified (bench test 21), so the worker must
+    write goal = present before enabling
   * a leader with torque off follows a slow scripted "hand"
   * calibration registers are fixed per arm, and differ between arms, like real calibrations
   * faults can be injected: overload / overheat / voltage on one joint, unplug on a whole arm or
@@ -73,9 +75,12 @@ class MockArm:
     faults: dict[str, int] = field(default_factory=dict)
     unplugged: bool = False
     scripted: bool = True  # leader follows the scripted hand
+    calibration_id: str = ""  # the calibration file this arm is registered with; default its name
 
     def __post_init__(self) -> None:
-        self._cal = _calibration(self.seed)
+        self.calibration_id = self.calibration_id or self.name
+        self._own_cal = _calibration(self.seed)
+        self._cal = self._own_cal  # what the port reaches; swap_cables changes it
         self._t = self.clock()  # type: ignore[operator]
         self._t0 = self._t
 
@@ -86,6 +91,7 @@ class MockArm:
             self.unplugged = True
         elif kind == "replug":
             self.unplugged = False
+            self._cal = self._own_cal  # replugged into the right port
         elif kind == "clear":
             self.faults.clear()
         else:
@@ -130,14 +136,16 @@ class MockArm:
     def write_goals(self, goals: dict[str, float]) -> None:
         self._check()
         self._step()
-        if self.torque:
-            self.goal.update(goals)
+        self.goal.update(goals)
 
     def set_torque(self, on: bool) -> None:
         self._check()
         self._step()
         self.torque = on
-        self.goal = dict(self.pos)  # enabling torque must not jump to a stale goal
+
+    def read_torque(self) -> bool:
+        self._check()
+        return self.torque
 
     def read_health(self) -> dict[str, JointHealth]:
         self._check()
@@ -201,7 +209,15 @@ class MockRig:
 
     def calibration_files(self) -> dict[str, Calibration]:
         """What a calibration directory would hold for these arms: each arm's own file."""
-        return {a.name: a._cal for a in self.arms}
+        return {a.name: a._own_cal for a in self.arms}
+
+    def swap_cables(self, name: str) -> None:
+        """Swap the USB cables of `name` and its partner (leader <-> follower): each port now
+        reaches the other arm's servos. Only the calibration registers are swapped, which is all
+        the identity check reads. Replugging either arm restores it."""
+        other = name.replace("leader", "@").replace("follower", "leader").replace("@", "follower")
+        a, b = (next(x for x in self.arms if x.name == n) for n in (name, other))
+        a._cal, b._cal = b._own_cal, a._own_cal
 
 
 def mock_rig(

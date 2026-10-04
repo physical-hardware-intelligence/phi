@@ -23,10 +23,12 @@ export interface ArmIdentity {
   role: "leader" | "follower";
   port: string;
   serial: string;
+  expected: string; // the calibration file this arm is registered with
   match: string | null;
   max_deg: number | null;
   worst_joint: string | null;
   exact: boolean;
+  ok: boolean; // exact, and the match is this arm's own file
 }
 
 export interface JointHealth { load: number; temp: number; volt: number; faults: string[] }
@@ -127,8 +129,16 @@ class Studio {
   }
   private stopHeartbeat(): void { this.beat?.terminate(); this.beat = null; }
 
-  send(msg: Record<string, unknown>): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+  /** False when this window has no live link, so the message went nowhere. */
+  send(msg: Record<string, unknown>): boolean {
+    if (this.ws?.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(msg));
+    return true;
+  }
+
+  localError(message: string, fix: string): void {
+    const e = { id: ++this.errorId, message, fix, at: Date.now() };
+    this.set({ errors: [...this.snap.errors.slice(-4), e] });
   }
 
   dismissError(id: number): void { this.set({ errors: this.snap.errors.filter((e) => e.id !== id) }); }
@@ -144,11 +154,7 @@ class Studio {
       case "telemetry": this.set({ telemetry: m }); break;
       case "camera": this.set({ cameras: { ...this.snap.cameras, [m.key]: { online: m.online, message: m.message } } }); break;
       case "worker_exit": this.set({ workerExit: m.message }); break;
-      case "error": {
-        const e = { id: ++this.errorId, message: m.message, fix: m.fix ?? "", at: Date.now() };
-        this.set({ errors: [...this.snap.errors.slice(-4), e] });
-        break;
-      }
+      case "error": this.localError(m.message, m.fix ?? ""); break;
     }
   }
 

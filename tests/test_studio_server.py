@@ -163,7 +163,7 @@ def test_closing_the_controlling_window_stops_motion() -> None:
             t0 = time.monotonic()
             await a.close()
             s = await until(watcher, lambda d: d.get("state") == "STOPPED", timeout=3)
-            assert s["stop_reason"] == "heartbeat" and time.monotonic() - t0 < 2.0
+            assert s["stop_reason"] == "window closed" and time.monotonic() - t0 < 0.5
         finally:
             await session.close()
             await server.close()
@@ -180,6 +180,101 @@ def test_worker_death_is_reported_to_every_window() -> None:
             studio.proc.kill()
             d = await until(w, lambda d: d["type"] == "worker_exit")
             assert "Restart" in d["message"]
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+def test_a_reload_inside_the_heartbeat_window_still_stops() -> None:
+    # Cmd+R mid-teleop: the new window takes control and beats within 1 s, which the heartbeat
+    # watchdog alone would not catch.
+    async def go() -> None:
+        studio, server, session = await started()
+        try:
+            a = await ws(session, server.port)
+            await until(a, lambda d: d["type"] == "hello")
+            for c in ("connect", "confirm", "arm"):
+                await a.send_str(json.dumps({"cmd": c}))
+            await a.send_str(json.dumps({"cmd": "start", "activity": "teleop"}))
+            await until(a, lambda d: d.get("state") == "MOVING", beat=True)
+            await a.close()
+            b = await ws(session, server.port)
+            await until(b, lambda d: d.get("state") == "STOPPED", timeout=1.5, beat=True)
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+def test_taking_control_mid_motion_stops_first() -> None:
+    async def go() -> None:
+        studio, server, session = await started()
+        try:
+            a = await ws(session, server.port)
+            await until(a, lambda d: d["type"] == "hello")
+            b = await ws(session, server.port)
+            for c in ("connect", "confirm", "arm"):
+                await a.send_str(json.dumps({"cmd": c}))
+            await a.send_str(json.dumps({"cmd": "start", "activity": "teleop"}))
+            await until(a, lambda d: d.get("state") == "MOVING", beat=True)
+            await b.send_str(json.dumps({"cmd": "take_control"}))
+            s = await until(b, lambda d: d.get("state") == "STOPPED", timeout=1.0)
+            assert s["stop_reason"] == "control moved"
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+class _Fake:
+    """A Client stand-in that records what the server pushes to it."""
+
+    def __init__(self) -> None:
+        self.got: list[dict[str, Any]] = []
+
+    def push(self, msg: dict[str, Any]) -> None:
+        self.got.append(msg)
+
+
+def offline_studio() -> tuple[Studio, list[dict[str, Any]]]:
+    studio = Studio({"kind": "mock"}, 1, token="t0k")
+    forwarded: list[dict[str, Any]] = []
+    studio.to_worker = forwarded.append  # type: ignore[method-assign]
+    return studio, forwarded
+
+
+def test_a_window_without_control_cannot_arm_and_its_heartbeats_are_ignored() -> None:
+    studio, forwarded = offline_studio()
+    a, b = _Fake(), _Fake()
+    studio.controller = a  # type: ignore[assignment]
+    for cmd in ("heartbeat", "arm", "start", "release", "disconnect"):
+        studio._from_client(b, json.dumps({"cmd": cmd}))  # type: ignore[arg-type]
+    assert forwarded == []
+    studio._from_client(b, json.dumps({"cmd": "stop"}))  # type: ignore[arg-type]
+    assert forwarded == [{"cmd": "stop"}]
+
+
+@pytest.mark.parametrize("raw", ['{"cmd": ["stop"]}', '{"cmd": {"a": 1}}', "[1, 2]", '"stop"',
+                                 '{"cmd": 7}', "not json"])  # fmt: skip
+def test_malformed_messages_get_an_error_not_a_dropped_socket(raw: str) -> None:
+    studio, forwarded = offline_studio()
+    a = _Fake()
+    studio.controller = a  # type: ignore[assignment]
+    studio._from_client(a, raw)  # type: ignore[arg-type]
+    assert forwarded == [] and a.got[-1]["type"] == "error"
+
+
+def test_non_ascii_token_is_refused_not_a_server_error() -> None:
+    async def go() -> None:
+        studio, server, session = await started()
+        try:
+            with pytest.raises(aiohttp.WSServerHandshakeError) as e:
+                await ws(session, server.port, token="%C3%A9")
+            assert e.value.status == 403
         finally:
             await session.close()
             await server.close()

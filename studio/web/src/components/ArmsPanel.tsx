@@ -38,8 +38,15 @@ export function ArmsPanel() {
                 <div className="arm-check">
                   {!online ? (
                     <span className="check tone-danger"><Unplug aria-hidden />Not answering</span>
-                  ) : a.exact ? (
+                  ) : a.ok ? (
                     <span className="check tone-ok"><CircleCheck aria-hidden />Matches {a.match}.json</span>
+                  ) : a.exact ? (
+                    <span className="check tone-danger">
+                      <TriangleAlert aria-hidden />
+                      Has {a.match}.json, expected {a.expected}.json. Cables swapped?
+                    </span>
+                  ) : a.match === null ? (
+                    <span className="check tone-warn"><TriangleAlert aria-hidden />No calibration files to compare</span>
                   ) : (
                     <span className="check tone-warn">
                       <TriangleAlert aria-hidden />

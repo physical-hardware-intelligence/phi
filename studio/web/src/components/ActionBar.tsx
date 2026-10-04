@@ -13,7 +13,8 @@ export function ActionBar() {
   const identity = useStudio((x) => x.identity);
   const anyTorque = useStudio((x) => Object.values(x.telemetry?.arms ?? {}).some((a) => a.torque));
   const [count, setCount] = useState<number | null>(null);
-  const [torqueOff, setTorqueOff] = useState(false);
+  // Which torque-off action waits on the confirm dialog: both drop the followers.
+  const [confirmOff, setConfirmOff] = useState<null | "release" | "disconnect">(null);
   const timer = useRef<number | null>(null);
 
   const cancel = () => {
@@ -46,7 +47,8 @@ export function ActionBar() {
   if (!s) return null;
   const send = (cmd: string) => () => studio.send({ cmd });
   const off = !control;
-  const mismatched = identity.some((a) => !a.exact);
+  const mismatched = identity.some((a) => !a.ok);
+  const disconnect = () => (anyTorque ? setConfirmOff("disconnect") : studio.send({ cmd: "disconnect" }));
 
   return (
     <div className="actionbar">
@@ -69,7 +71,7 @@ export function ActionBar() {
               <RotateCcw aria-hidden /> Read again
             </button>
             <button className="btn btn-primary" onClick={send("confirm")} disabled={off || mismatched}
-              title={mismatched ? "Every arm must match its calibration file exactly" : undefined}>
+              title={mismatched ? "Every arm must match its own calibration file exactly" : undefined}>
               Confirm {identity.length} arms
             </button>
           </>
@@ -82,7 +84,7 @@ export function ActionBar() {
         {s.state === "ARMED" && (
           count === null ? (
             <>
-              <button className="btn" onClick={() => setTorqueOff(true)} disabled={off}>
+              <button className="btn" onClick={() => setConfirmOff("release")} disabled={off}>
                 <PowerOff aria-hidden /> Torque off
               </button>
               <button className="btn btn-primary" onClick={startCountdown} disabled={off}>
@@ -98,7 +100,7 @@ export function ActionBar() {
         )}
         {s.state === "STOPPED" && (
           <>
-            <button className="btn" onClick={() => setTorqueOff(true)} disabled={off}>
+            <button className="btn" onClick={() => setConfirmOff("release")} disabled={off}>
               <PowerOff aria-hidden /> Torque off
             </button>
             <button className="btn btn-primary" onClick={send("resume")} disabled={off}>
@@ -107,27 +109,30 @@ export function ActionBar() {
           </>
         )}
         {s.state === "FAULT" && anyTorque && (
-          <button className="btn" onClick={() => setTorqueOff(true)} disabled={off}>
+          <button className="btn btn-primary" onClick={() => setConfirmOff("release")} disabled={off}>
             <PowerOff aria-hidden /> Torque off
           </button>
         )}
         {s.state === "FAULT" && (
-          <button className="btn btn-primary" onClick={send("clear")} disabled={off}>
+          <button className={`btn ${anyTorque ? "" : "btn-primary"}`} onClick={send("clear")} disabled={off || anyTorque}
+            title={anyTorque ? "Turn torque off first: clearing re-checks every arm" : undefined}>
             <RotateCcw aria-hidden /> Clear and re-check arms
           </button>
         )}
         {s.state !== "DISCONNECTED" && s.state !== "MOVING" && (
-          <button className="btn btn-ghost" onClick={send("disconnect")} disabled={off}>
+          <button className="btn btn-ghost" onClick={disconnect} disabled={off}>
             Disconnect
           </button>
         )}
       </div>
 
-      <Dialog.Root open={torqueOff} onOpenChange={setTorqueOff}>
+      <Dialog.Root open={confirmOff !== null} onOpenChange={(o) => { if (!o) setConfirmOff(null); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="dialog-overlay" />
           <Dialog.Content className="dialog" aria-describedby="torque-off-desc">
-            <Dialog.Title className="t-lg">Turn torque off?</Dialog.Title>
+            <Dialog.Title className="t-lg">
+              {confirmOff === "disconnect" ? "Disconnect and turn torque off?" : "Turn torque off?"}
+            </Dialog.Title>
             <p id="torque-off-desc" className="t-md muted">
               The followers go limp and fall under their own weight. Support each follower by hand,
               or lower it to its rest pose first.
@@ -136,8 +141,8 @@ export function ActionBar() {
               <Dialog.Close asChild>
                 <button className="btn" autoFocus>Keep torque on</button>
               </Dialog.Close>
-              <button className="btn btn-danger" onClick={() => { studio.send({ cmd: "release" }); setTorqueOff(false); }}>
-                Turn torque off
+              <button className="btn btn-danger" onClick={() => { studio.send({ cmd: confirmOff ?? "release" }); setConfirmOff(null); }}>
+                {confirmOff === "disconnect" ? "Disconnect" : "Turn torque off"}
               </button>
             </div>
           </Dialog.Content>

@@ -48,16 +48,25 @@ class JointHealth:
         return decode_status(self.status)
 
 
+# WHY both: LeRobot raises ConnectionError when a packet gets no answer and RuntimeError when the
+# servo answers with an error status (motors_bus.py:965-970, 1056-1058), and pyserial raises
+# SerialException, an IOError, when the port disappears (serialutil.py:92). Each one is a fault.
+BUS_ERRORS: tuple[type[Exception], ...] = (OSError, RuntimeError)
+
+
 class ArmBus(Protocol):
-    """One arm on one serial bus. Only the worker's bus thread calls these."""
+    """One arm on one serial bus. Only the worker's bus thread calls these. Every method may raise
+    one of BUS_ERRORS."""
 
     name: str
     role: str  # leader | follower
+    calibration_id: str  # the calibration file this arm is registered with
 
     def read_calibration(self) -> Calibration: ...
     def read_positions(self) -> dict[str, float]: ...
     def write_goals(self, goals: dict[str, float]) -> None: ...
     def set_torque(self, on: bool) -> None: ...
+    def read_torque(self) -> bool: ...
     def read_health(self) -> dict[str, JointHealth]: ...
     def close(self) -> None: ...
 

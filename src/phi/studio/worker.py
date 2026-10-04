@@ -6,27 +6,35 @@ process (ARCHITECTURE ADR-S2).
 
 Rules it enforces, whatever the UI sends:
   * torque only after every arm's identity is confirmed (session state READY)
-  * goals only while MOVING, clipped per cycle to `max_step`
+  * torque only on an arm whose registers match its own calibration file (a swap is refused)
+  * enabling torque first writes goal = present position, so the arm holds where it is
+  * goals only while MOVING, at most `max_step` ahead of the present position
   * Stop and heartbeat loss freeze followers at their present position; torque stays on (ADR-S5)
-  * any bus error or servo fault bit freezes every reachable follower and faults the session
+  * any bus error or servo fault bit freezes every reachable follower and faults the session, and
+    so does any error the worker did not expect: a bug must stop the rig, not kill the worker
+  * a fault clears only with torque off, since clearing re-checks every arm's identity
 """
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
 from typing import Any
 
 from phi.studio.identity import Calibration, match_fingerprint
-from phi.studio.rig import JOINTS, ArmBus, JointHealth
+from phi.studio.rig import BUS_ERRORS, JOINTS, ArmBus, JointHealth
 from phi.studio.session import IllegalTransition, Session, State
 
 # WHY these step limits: LeRobot's max_relative_target defaults to None (config_so_follower.py:36),
-# and a gripper motor burned from over-tightening (RECORDING_DAY.md). 8 deg per cycle is 240 deg/s
-# at 30 Hz. Placeholder values until a hardware session with Parv sets them (GAP LEDGER).
+# and a gripper motor burned from over-tightening (RECORDING_DAY.md). The clip is measured from the
+# present position, so it bounds how far the goal leads the arm, not the arm's speed: the speed
+# comes from the servo's position loop on that lead (unmeasured). Placeholder values until a
+# hardware session with Parv sets them (GAP LEDGER).
 DEFAULT_MAX_STEP = {j: 8.0 for j in JOINTS} | {"gripper": 5.0}
 HEARTBEAT_TIMEOUT_S = 1.0  # Franka stops a hold-to-run link silent for over 1 s (research/02)
+STOP_REASONS = {"user", "window closed", "control moved"}  # what a stop message may claim
 
 
 def pair_arms(arms: list[ArmBus]) -> list[tuple[ArmBus, ArmBus]]:
@@ -39,6 +47,20 @@ def pair_arms(arms: list[ArmBus]) -> list[tuple[ArmBus, ArmBus]]:
             if lead is not None and lead.role == "leader":
                 pairs.append((lead, f))
     return pairs
+
+
+def _identity_problem(a: dict[str, Any]) -> tuple[str, str]:
+    """(message, fix) for an arm whose registers do not match its own calibration file."""
+    name, match = a["name"], a["match"]
+    if match is None:
+        return (f"{name}: no calibration files to compare with",
+                "Calibrate the arm, or point Studio at the calibration directory.")  # fmt: skip
+    if a["exact"]:
+        return (f"{name} has {match}'s calibration: are their cables swapped?",
+                f"Swap the USB cables of {name} and {match}, then read again.")  # fmt: skip
+    return (f"{name} does not match its calibration file exactly",
+            f"Nearest is {match}, {a['max_deg']:.1f} deg off on {a['worst_joint']}. Calibrate "
+            "this arm, or connect the arm that file belongs to.")  # fmt: skip
 
 
 class RigWorker:
@@ -79,8 +101,13 @@ class RigWorker:
             fn(msg)
         except IllegalTransition as e:
             self.error(str(e))
-        except ConnectionError as e:
-            self._fault(str(e))
+        except BUS_ERRORS as e:
+            self._fault(f"A bus stopped answering during {cmd}: {e}")
+        except Exception as e:  # a bug: stop the rig and say so, do not kill the worker
+            if self.session.state is State.DISCONNECTED:
+                self.error(f"Studio hit an internal error running {cmd}: {e!r}")
+            else:
+                self._fault(f"Studio hit an internal error running {cmd}: {e!r}")
 
     def error(self, message: str, fix: str = "") -> None:
         self.send({"type": "error", "message": message, "fix": fix})
@@ -97,20 +124,23 @@ class RigWorker:
         self._identify()
 
     def _cmd_confirm(self, msg: dict[str, Any]) -> None:
-        bad = [a for a in self.identity if not a["exact"]]
+        bad = [a for a in self.identity if not a["ok"]]
         if bad and self.session.state is State.IDENTIFIED:
-            a = bad[0]
-            self.error(
-                f"{a['name']} does not match any calibration file exactly",
-                f"nearest is {a['match']}, {a['max_deg']:.1f} deg off on {a['worst_joint']}. "
-                "Calibrate this arm, or connect the arm that file belongs to.",
-            )
+            self.error(*_identity_problem(bad[0]))
             return
         self.session.confirmed()
+        if any(self.torque[f.name] for f in self.followers):
+            # Torque left on by an earlier session: the arm is holding, so say so.
+            self._freeze()
+            self.session.armed()
 
     def _cmd_arm(self, msg: dict[str, Any]) -> None:
         self.session.armed()  # raises unless READY, before any torque write
         for f in self.followers:
+            # WHY: a servo may drive to the goal it last stored once torque is on, and the arm may
+            # have been moved by hand since (bench test 21). LeRobot does not do this:
+            # enable_torque writes only Torque_Enable and Lock (feetech.py:302-305).
+            f.write_goals(f.read_positions())
             self._set_torque(f, True)
         self.last_heartbeat = self.clock()
 
@@ -125,9 +155,10 @@ class RigWorker:
         self.session.started(activity)
 
     def _cmd_stop(self, msg: dict[str, Any]) -> None:
+        reason = msg.get("reason", "user")
         if self.session.state in (State.MOVING, State.ARMED):
+            self.session.stopped(reason if reason in STOP_REASONS else "user")
             self._freeze()
-            self.session.stopped("user")
         elif self.session.state is State.FAULT:
             self._freeze()  # already frozen; Stop still acts while torque is on
 
@@ -140,31 +171,40 @@ class RigWorker:
         faulted = self.session.state is State.FAULT
         if not faulted and self.session.state not in (State.ARMED, State.STOPPED):
             self.session.released()  # raises with the reason
-        for f in self.followers:
-            if f.name not in self.dead:
-                self._set_torque(f, False)
+        silent = self._release_all()
+        if silent:
+            self.error(f"{', '.join(silent)} did not answer, so its torque may still be on",
+                       "Support the arm and cut its power, then reconnect it.")  # fmt: skip
         if not faulted:
             self.session.released()
 
     def _cmd_clear(self, msg: dict[str, Any]) -> None:
+        holding = [f.name for f in self.followers if self.torque[f.name]]
+        if holding and self.session.state is State.FAULT:
+            self.error(f"Turn torque off before clearing: {', '.join(holding)} still holds",
+                       "Clearing re-checks every arm, so no arm may hold torque. Support each "
+                       "follower, then use Torque off.")  # fmt: skip
+            return
         self.session.cleared()
         self.dead.clear()
         self._identify()
 
     def _cmd_disconnect(self, msg: dict[str, Any]) -> None:
-        for f in self.followers:
-            if f.name not in self.dead:
-                try:
-                    self._set_torque(f, False)
-                except ConnectionError:
-                    pass
+        self._release_all()
         self.session.disconnected()
 
     def _cmd_inject(self, msg: dict[str, Any]) -> None:
         """Mock rig only: inject a fault so the UI's error paths can be exercised."""
         target = next((a for a in self.arms if a.name == msg.get("arm")), None)
+        kinds = {"overload", "overheat", "voltage", "unplug", "replug", "clear", "swap"}
         if target is None or not hasattr(target, "inject"):
             self.error("fault injection works only on the mock rig")
+            return
+        if msg.get("kind") not in kinds:
+            self.error(f"unknown fault {msg.get('kind')!r}", f"one of {', '.join(sorted(kinds))}")
+            return
+        if msg["kind"] == "swap":
+            self.rig.swap_cables(target.name)
             return
         target.inject(msg["kind"], joint=msg.get("joint"))
 
@@ -173,15 +213,19 @@ class RigWorker:
         out = []
         for a in self.arms:
             regs = a.read_calibration()
+            self.torque[a.name] = a.read_torque()  # the servo's word, not what Studio last sent
             best = match_fingerprint(regs, self.calibrations)[0] if self.calibrations else None
+            exact = bool(best and best.distance.exact)
             out.append({
                 "name": a.name, "role": a.role,
                 "port": getattr(a, "port", f"mock://{a.name}"),
                 "serial": getattr(a, "serial", f"MOCK-{a.name}"),
+                "expected": a.calibration_id,
                 "match": best.name if best else None,
                 "max_deg": round(best.distance.max_deg, 2) if best else None,
                 "worst_joint": best.distance.worst_joint if best else None,
-                "exact": bool(best and best.distance.exact),
+                "exact": exact,
+                "ok": exact and best is not None and best.name == a.calibration_id,
             })  # fmt: skip
         self.identity = out
         self.send({"type": "identity", "arms": out})  # before the state, so the UI has the matches
@@ -191,19 +235,39 @@ class RigWorker:
         a.set_torque(on)
         self.torque[a.name] = on
 
-    def _freeze(self) -> None:
-        """Goal = present position on every reachable follower with torque on. Torque stays on."""
+    def _release_all(self) -> list[str]:
+        """Torque off on every follower that may hold it, dead ones included (a replugged arm
+        answers again). Returns the followers that did not answer."""
+        silent = []
         for f in self.followers:
-            if f.name in self.dead:
+            if not self.torque[f.name]:
+                continue
+            try:
+                self._set_torque(f, False)
+            except BUS_ERRORS:
+                silent.append(f.name)
+        return silent
+
+    def _freeze(self) -> None:
+        """Goal = present position on every reachable follower with torque on. Torque stays on.
+        A follower that does not answer is marked dead and faults the session."""
+        lost = None
+        for f in self.followers:
+            # WHY skip limp followers: a goal write may enable torque on some Feetech firmware
+            # (bench test 22), and a limp arm has nothing to hold.
+            if f.name in self.dead or not self.torque[f.name]:
                 continue
             try:
                 f.write_goals(f.read_positions())
-            except ConnectionError:
+            except BUS_ERRORS as e:
                 self.dead.add(f.name)
+                lost = lost or f"{f.name} is not answering: {e}"
+        if lost and self.session.state is not State.FAULT:
+            self.session.faulted(lost)
 
     def _fault(self, why: str) -> None:
-        self._freeze()
         self.session.faulted(why)
+        self._freeze()
 
     def _clip(self, goal: dict[str, float], present: dict[str, float]) -> dict[str, float]:
         return {
@@ -218,9 +282,10 @@ class RigWorker:
         self._n += 1
         st = self.session.state
         if st in (State.ARMED, State.MOVING) and now - self.last_heartbeat > HEARTBEAT_TIMEOUT_S:
-            self._freeze()
             self.session.heartbeat_lost()
+            self._freeze()
         if st is State.DISCONNECTED:
+            self._publish({})  # so torque badges and the Stop button reflect the release
             return
         pos: dict[str, dict[str, float]] = {}
         current = None
@@ -239,10 +304,12 @@ class RigWorker:
                         current = a
                         self.health[a.name] = a.read_health()
                 self._check_health()
-        except ConnectionError as e:
+        except BUS_ERRORS as e:
             if current is not None:
                 self.dead.add(current.name)
             self._fault(f"{current.name if current else 'A bus'} is not answering: {e}")
+        except Exception as e:  # a bug: stop the rig and say so, do not kill the worker
+            self._fault(f"Studio hit an internal error in the control loop: {e!r}")
         self._cost_ms.append((time.perf_counter() - t_start) * 1e3)
         self._publish(pos)
 
@@ -279,6 +346,50 @@ class RigWorker:
 
 
 # -- the worker process --------------------------------------------------------------------------
+class Outbox:
+    """Worker -> server messages. `put` never blocks, so a slow or stuck server cannot stall the bus
+    loop or its heartbeat watchdog; one sender thread does the blocking Pipe writes. As in the
+    server's Client, the newest telemetry and the newest frame per camera win, and every event is
+    kept, in order."""
+
+    def __init__(self, send: Callable[[dict[str, Any]], None]) -> None:
+        self._send = send
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._events: deque[dict[str, Any]] = deque()
+        self._telemetry: dict[str, Any] | None = None
+        self._frames: dict[str, dict[str, Any]] = {}
+
+    def put(self, msg: dict[str, Any]) -> None:
+        with self._lock:
+            kind = msg.get("type")
+            if kind == "telemetry":
+                self._telemetry = msg
+            elif kind == "frame":
+                self._frames[msg["key"]] = msg
+            else:
+                self._events.append(msg)
+        self._wake.set()
+
+    def _take(self) -> list[dict[str, Any]]:
+        with self._lock:
+            out = list(self._events)
+            self._events.clear()
+            if self._telemetry is not None:
+                out.append(self._telemetry)
+                self._telemetry = None
+            out.extend(self._frames.values())
+            self._frames = {}
+        return out
+
+    def run(self, done: threading.Event) -> None:
+        while not done.is_set():
+            self._wake.wait(0.1)
+            self._wake.clear()
+            for m in self._take():
+                self._send(m)
+
+
 def build_rig(spec: dict[str, Any]) -> Any:
     if spec.get("kind", "mock") == "mock":
         from phi.studio.mock import mock_rig
@@ -301,20 +412,16 @@ def encode_jpeg(frame: Any, quality: int = 80) -> bytes:
 def run_worker(conn: Any, spec: dict[str, Any]) -> None:
     """Entry point of the spawned worker process. `conn` is one end of a multiprocessing Pipe.
 
-    Threads: a reader that queues commands, one publisher per camera, and the bus loop, which is
-    the only thread that calls the rig's arms (one owner per bus, ADR-S4).
+    Threads: a reader that queues commands, one publisher per camera, the outbox sender, and the
+    bus loop, which is the only thread that calls the rig's arms (one owner per bus, ADR-S4).
     """
     import queue
-    import threading
 
-    lock = threading.Lock()
-
-    def send(msg: dict[str, Any]) -> None:
-        with lock:
-            try:
-                conn.send(msg)
-            except (BrokenPipeError, OSError):
-                pass
+    def send(msg: dict[str, Any]) -> None:  # only the outbox thread calls this after startup
+        try:
+            conn.send(msg)
+        except (BrokenPipeError, OSError):
+            pass
 
     try:
         rig = build_rig(spec)
@@ -322,7 +429,8 @@ def run_worker(conn: Any, spec: dict[str, Any]) -> None:
         send({"type": "error", "message": f"could not build the rig: {e}", "fix": ""})
         return
     hz = float(spec.get("hz", 30))
-    w = RigWorker(rig, send, loop_hz=hz)
+    outbox = Outbox(send)
+    w = RigWorker(rig, outbox.put, loop_hz=hz)
     inbox: queue.SimpleQueue[dict[str, Any]] = queue.SimpleQueue()
     done = threading.Event()
 
@@ -339,19 +447,20 @@ def run_worker(conn: Any, spec: dict[str, Any]) -> None:
         while not done.is_set():
             try:
                 frame, t, seq = cam.read_latest()
-                send({"type": "frame", "key": cam.key, "t": t, "seq": seq,
+                outbox.put({"type": "frame", "key": cam.key, "t": t, "seq": seq,
                       "w": int(frame.shape[1]), "h": int(frame.shape[0]),
                       "jpeg": encode_jpeg(frame)})  # fmt: skip
             except ConnectionError as e:
-                send({"type": "camera", "key": cam.key, "online": False, "message": str(e)})
+                outbox.put({"type": "camera", "key": cam.key, "online": False, "message": str(e)})
             nxt += period
             time.sleep(max(0.0, nxt - time.monotonic()))
 
     threading.Thread(target=reader, daemon=True).start()
+    threading.Thread(target=outbox.run, args=(done,), daemon=True).start()
     for cam in rig.cameras:
         threading.Thread(target=camera, args=(cam, float(spec.get("preview_fps", 15))),
                          daemon=True).start()  # fmt: skip
-    send({"type": "state", **w.session.snapshot()})
+    outbox.put({"type": "state", **w.session.snapshot()})
     period, nxt = 1.0 / hz, time.monotonic()
     try:
         while True:
@@ -374,6 +483,6 @@ def run_worker(conn: Any, spec: dict[str, Any]) -> None:
         # LeRobot itself releases torque on disconnect (config_so_follower.py:31).
         done.set()
         w._freeze()
-        w.handle({"cmd": "disconnect"})
+        w._release_all()
         for cam in rig.cameras:
             cam.close()

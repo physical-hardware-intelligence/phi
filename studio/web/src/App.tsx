@@ -12,7 +12,14 @@ import { studio, useStudio } from "./lib/studio";
 const CAMERAS = ["front", "wrist", "top"];
 
 export function App() {
-  const stop = useCallback(() => studio.send({ cmd: "stop" }), []);
+  const stop = useCallback(() => {
+    if (studio.send({ cmd: "stop" })) return;
+    // WHY say so: a silent no-op Stop is the worst failure a stop button can have.
+    studio.localError(
+      "Stop did not reach Studio: this window is offline",
+      "If this window had control, the rig stopped when the link dropped. Otherwise stop from the window that has control, or cut the followers' power.",
+    );
+  }, []);
 
   // Esc stops from any focus, including inside dialogs: capture phase, before anything else.
   useEffect(() => {
