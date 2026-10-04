@@ -1,6 +1,6 @@
 // Connection to the Studio server and the app state it feeds.
 // One WebSocket: JSON for state, identity, telemetry and errors; binary for camera frames.
-import { useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 
 export type Tone = "neutral" | "info" | "ok" | "warn" | "danger";
 export type SessionState =
@@ -206,6 +206,7 @@ class Studio {
   private beat: Worker | null = null;
   private errorId = 0;
   private retry = 0;
+  private retryTimer: number | null = null;
   private started = false;
   snap: Snapshot = {
     link: "connecting", mock: false, control: false, state: null, identity: [],
@@ -253,8 +254,13 @@ class Studio {
   }
 
   connect(): void {
+    // WHY drop the pending retry and the old socket: a link pasted while a retry was queued used to
+    // open a second socket. The first stayed the server's controller, so this window read "view only".
+    if (this.retryTimer !== null) { window.clearTimeout(this.retryTimer); this.retryTimer = null; }
+    const old = this.ws;
+    if (old) { old.onopen = old.onmessage = old.onclose = null; old.close(); this.stopHeartbeat(); }
     const tok = this.token();
-    if (!tok) { this.set({ link: "refused" }); return; }
+    if (!tok) { this.ws = null; this.set({ link: "refused" }); return; }
     const ws = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(tok)}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
@@ -273,19 +279,22 @@ class Studio {
       if (this.snap.link !== "down") this.set({ link: "closed" });
       this.set({ control: false });
       this.dropPending();
-      if (!opened && this.retry >= 2) void this.diagnose();
+      if (!opened && this.retry >= 2) void this.diagnose(ws);
       else this.reconnectSoon();
     };
   }
 
-  private reconnectSoon(): void { setTimeout(() => this.connect(), Math.min(4000, 500 * 2 ** this.retry++)); }
+  private reconnectSoon(): void {
+    this.retryTimer = window.setTimeout(() => { this.retryTimer = null; this.connect(); }, Math.min(4000, 500 * 2 ** this.retry++));
+  }
 
   /** Why the link keeps failing. A WebSocket cannot say; the health endpoint, which needs no token, can.
    * No answer: Studio is not running, so keep trying. An answer: Studio refused this window's token. */
-  private async diagnose(): Promise<void> {
-    try {
-      if ((await fetch("/api/health", { cache: "no-store" })).ok) { this.set({ link: "refused" }); return; }
-    } catch { /* nothing listening */ }
+  private async diagnose(ws: WebSocket): Promise<void> {
+    let refused = false;
+    try { refused = (await fetch("/api/health", { cache: "no-store" })).ok; } catch { /* nothing listening */ }
+    if (this.ws !== ws) return; // a new link was opened meanwhile; it owns the retries now
+    if (refused) { this.set({ link: "refused" }); return; }
     this.set({ link: "down" });
     this.reconnectSoon();
   }
@@ -294,6 +303,7 @@ class Studio {
   // about once a second, which would trip the 1 s motion watchdog while the operator looks away.
   // Worker timers are not throttled the same way. [Unverified on every browser: test in Stage 5.]
   private startHeartbeat(): void {
+    this.stopHeartbeat();
     const src = "setInterval(() => postMessage(0), 250);";
     this.beat = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
     this.beat.onmessage = () => this.send({ cmd: "heartbeat" });
@@ -420,19 +430,31 @@ class Studio {
   loadFiles(): void { this.send({ cmd: "files_index" }); this.refreshPorts(); }
   refreshPorts(): void { this.send({ cmd: "ports" }); }
   /** Open a file in the Files page. `root` omitted: the server finds which root holds `path`. */
+  // WHY check send(): a request that never left would leave its spinner, and the disabled Search button, forever.
   openFile(path: string, line?: number | null, root?: string): void {
     go("files");
+    if (!this.send({ cmd: "file_read", path, line: line ?? null, ...(root ? { root } : {}) })) {
+      this.localError("Files cannot open while this window is offline", "Wait for it to reconnect.");
+      return;
+    }
     this.setFiles({ loading: path, error: null });
-    this.send({ cmd: "file_read", path, line: line ?? null, ...(root ? { root } : {}) });
   }
   search(query: string): void {
+    if (!this.send({ cmd: "files_search", query })) {
+      this.localError("Search cannot run while this window is offline", "Wait for it to reconnect.");
+      return;
+    }
     this.setFiles({ searching: query, error: null });
-    this.send({ cmd: "files_search", query });
   }
 
   private onJson(m: any): void {
     switch (m.type) {
-      case "hello": this.set({ mock: m.mock, control: m.control }); break;
+      // WHY clear these: the server replays its own identity and worker_exit right after hello, and
+      // telemetry and camera status stream again within a tick, so a value kept from an earlier server
+      // (a restarted Studio) would otherwise stay on screen for good. Checks keep their own timestamp.
+      case "hello":
+        this.set({ mock: m.mock, control: m.control, workerExit: null, identity: [], telemetry: null, cameras: {} });
+        break;
       case "control":
         if ("control" in m) this.set({ control: m.control });
         break;
@@ -523,8 +545,24 @@ class Studio {
 
 export const studio = new Studio();
 
+function shallowEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null || Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  return ka.length === kb.length && ka.every((k) => Object.is((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
+// WHY keep the last value when the new one is shallow-equal: useSyncExternalStore treats every new
+// object as a change. A selector such as `s.rig?.policies ?? []` returns a fresh [] while rig is null,
+// so React re-rendered until it threw #185 (maximum update depth) on every reload of Run policy.
 export function useStudio<T>(select: (s: Snapshot) => T): T {
-  return useSyncExternalStore(studio.subscribe, () => select(studio.snap));
+  const last = useRef<{ value: T } | null>(null);
+  return useSyncExternalStore(studio.subscribe, () => {
+    const value = select(studio.snap);
+    if (last.current && shallowEqual(last.current.value, value)) return last.current.value;
+    last.current = { value };
+    return value;
+  });
 }
 
 // -- routing and theme -------------------------------------------------------------------------

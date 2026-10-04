@@ -132,14 +132,14 @@ function Summary({ rec }: { rec: EvalRecord }) {
       </div>
       <div className="eval-stat">
         <span className="t-cap faint">Judged</span>
-        <span className="t-stat num">{rec.n}<span className="eval-of"> / {rec.planned}</span></span>
+        <span className="t-stat num">{rec.n}<span className="eval-of">{rec.n > rec.planned ? ` (${rec.planned} planned)` : ` / ${rec.planned}`}</span></span>
       </div>
       <div className="eval-stat eval-rate">
         <span className="t-cap faint">Success rate, 95% interval</span>
         <Interval k={rec.successes} n={rec.n} lo={rec.ci95[0]} hi={rec.ci95[1]} />
       </div>
       <div className="eval-end">
-        <button className="btn" onClick={end} disabled={!control}>End eval</button>
+        <button className={`btn ${rec.n >= rec.planned ? "btn-primary" : ""}`} onClick={end} disabled={!control}>End eval</button>
       </div>
       <Dialog.Root open={confirm} onOpenChange={setConfirm}>
         <Dialog.Portal>
@@ -179,6 +179,8 @@ function Judge({ rec, toJudge, judged, running }: { rec: EvalRecord; toJudge: bo
     if (!toJudge || !control) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.metaKey || e.ctrlKey) return;
+      // WHY: an open dialog (End the eval?) holds focus; a habitual F there must not judge the episode behind it.
+      if (e.target instanceof Element && e.target.closest('[role="dialog"], [role="alertdialog"]')) return;
       if (e.key === "s" || e.key === "S") mark("success");
       if (e.key === "f" || e.key === "F") mark("failure");
     };
@@ -195,6 +197,7 @@ function Judge({ rec, toJudge, judged, running }: { rec: EvalRecord; toJudge: bo
           <p className="panel-sub">
             {toJudge && run ? `Ended after ${run.episode_s.toFixed(1)} s: ${run.ended ?? "stopped"}. Judge what the arm did, then reset the scene.`
               : running ? "Watch it. Judge it when it ends."
+              : judged && last && rec.n >= rec.planned ? `Episode ${last.n} judged ${last.outcome}. That was the last planned episode. End the eval, or reset the scene to run more.`
               : judged && last ? `Episode ${last.n} judged ${last.outcome}. Reset the scene before episode ${next}.`
               : `Studio asks for the judgement when episode ${next} ends.`}
           </p>

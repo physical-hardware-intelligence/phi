@@ -20,6 +20,11 @@ const REFERENCE: Item[] = [
   { route: "files", label: "Files", icon: FolderOpen },
 ];
 
+// WHY one list: the Claude panel names the current page; a second copy of the labels missed two pages.
+export const PAGE_LABELS = Object.fromEntries(
+  [...TOP, ...WORKFLOWS, ...REFERENCE].map((i) => [i.route, i.label]),
+) as Record<Route, string>;
+
 // Places on the left, the work on the right (Foxglove's layout). Each item may carry one live hint drawn
 // from session state, so the sidebar also answers "where is something happening".
 export function Sidebar() {

@@ -94,12 +94,15 @@ export function PolicySetup({ policies, choice, title = "Policy", children }: {
 const ENDED: Record<string, string> = {
   "time limit": "Reached its time limit", user: "Stopped by you", heartbeat: "Stopped: this window stopped answering",
   "window closed": "Stopped: the controlling window closed", "control moved": "Stopped: control moved to another window",
-  fault: "Stopped by a fault",
+  fault: "Stopped by a fault", disconnected: "Stopped: the rig was disconnected",
 };
+// WHY per state: after a teleop stop torque is already on, and Run policy appears only after Resume.
+const FIRST_RUN: Record<string, string> = { ARMED: "Press Run policy above.", STOPPED: "Resume, then Run policy." };
 
 export function RunPanel() {
   const run = useStudio((s) => s.telemetry?.policy ?? null);
   const hz = useStudio((s) => s.telemetry?.loop.hz ?? 0);
+  const state = useStudio((s) => s.state?.state ?? "");
   return (
     <section className="panel">
       <div className="panel-head">
@@ -111,7 +114,7 @@ export function RunPanel() {
           {run.running ? "Running" : "Ended"}</span>}
       </div>
       {!run ? (
-        <p className="empty">Nothing has run yet. Enable torque, then Run policy.</p>
+        <p className="empty">Nothing has run yet. {FIRST_RUN[state] ?? "Enable torque, then Run policy."}</p>
       ) : (
         <div className="panel-body run">
           <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={run.limit_s} aria-valuenow={run.episode_s}

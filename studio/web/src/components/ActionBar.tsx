@@ -60,6 +60,7 @@ export function ActionBar({ activity, startLabel, startMsg, canStart = true, sta
     : s.state === "MOVING" ? (mine ? `${verb} is running.` : `${s.activity} is running on another page.`)
     : s.state === "IDENTIFIED" && mismatched ? "Some arms do not match their own calibration file."
     : s.state === "CALIBRATING" ? "Calibration is in progress."
+    : s.state === "ARMED" ? `Followers are holding. ${startLabel ?? "Start teleop"} when ready.`
     : s.next_action;
 
   return (

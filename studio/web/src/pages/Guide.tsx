@@ -157,9 +157,11 @@ function Rig() {
         { title: "Set the motor ids", body: <>
             Once per new arm, with <Id>lerobot-setup-motors</Id>. Skip this for the assembled Kit Pro.
           </> },
-        { title: "Calibrate each arm", to: "calibrate", body: <>
-            At "set the middle", put every joint mid-range, and Wrist Roll at the centre of the range you will use with
-            the gripper level. Wrist Roll has no stops: you get 180° either way from that pose and no more.
+        { title: "Calibrate each arm", to: "setup", open: "Commands", body: <>
+            Run <Id>lerobot-calibrate</Id> for the followers, then the leaders. Studio's Calibrate page writes only the
+            mock rig's files. When it asks for the middle of the range, put every joint mid-range, and Wrist Roll at the
+            centre of the range you will use with the gripper level. Wrist Roll has no stops: you get 180° either way
+            from that pose and no more.
           </> },
         { title: "Set a step limit", to: "setup", open: "LeRobot setup", body: <>
             Without <Id>max_relative_target</Id> LeRobot sends every goal to the follower as it is. Set one number, or

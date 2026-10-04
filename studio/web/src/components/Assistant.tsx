@@ -5,11 +5,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { studio, useRoute, useStudio, type Part, type Turn } from "../lib/studio";
 import { Markdown } from "./Markdown";
-
-const PAGE_NAMES: Record<string, string> = {
-  overview: "Overview", checks: "Checks", calibrate: "Calibrate", teleop: "Teleoperate", policy: "Run policy",
-  evaluate: "Evaluate", files: "Files",
-};
+import { PAGE_LABELS } from "./Sidebar";
 
 // Claude, beside every page. It reads what Studio sees and the files under Studio's folders; it has no
 // way to send a rig command, so the panel never needs a confirmation step.
@@ -98,7 +94,7 @@ function Intro() {
     ...(focus ? ["Why did this happen, and how do I fix it?"] : recent ? [`Why did this happen, and how do I fix it: “${recent}”`] : []),
     "Which port is each arm on, and does that match robot-config.yaml?",
     "Does every arm match its own calibration file?",
-    `What should I do next on the ${PAGE_NAMES[route] ?? route} page?`,
+    `What should I do next on the ${PAGE_LABELS[route] ?? route} page?`,
   ].slice(0, 4);
   return (
     <div className="assist-intro">
@@ -208,7 +204,7 @@ function Composer({ busy }: { busy: boolean }) {
         )}
       </div>
       <div className="compose-foot">
-        <span>Sees the rig state, recent log and the {PAGE_NAMES[route] ?? route} page.</span>
+        <span>Sees the rig state, recent log and the {PAGE_LABELS[route] ?? route} page.</span>
         <ContextDialog />
       </div>
     </div>

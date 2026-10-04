@@ -248,7 +248,9 @@ fieldset.form { border: 0; margin: 0; min-width: 0; }
 .wizard-hint { flex: 1; color: var(--text-secondary); font-size: var(--text-base); line-height: 1.375rem; }
 .wizard-actions > .btn-primary { margin-left: auto; }
 .ranges { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.range-row { display: grid; grid-template-columns: 124px minmax(176px, 1fr) 172px 92px; gap: var(--space-4); align-items: center; height: 2.75rem; }
+/* WHY minmax and max-content, not fixed widths: the fixed row needed 612px, more than the wizard has in a
+   1200-1325px window or a narrow one, and spilled past the panel. Only the track gives way now. */
+.range-row { display: grid; grid-template-columns: minmax(96px, 124px) minmax(64px, 1fr) max-content minmax(64px, 92px); gap: var(--space-3); align-items: center; height: 2.75rem; }
 .range-joint { font-weight: 500; }
 .range-track { position: relative; height: 10px; border-radius: 999px; background: var(--bg-active); }
 .range-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--border-strong); }
@@ -431,7 +433,8 @@ fieldset.form { border: 0; margin: 0; min-width: 0; }
 .file-link code { color: inherit; }
 
 /* ---- files ---- */
-.files-grid { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+/* WHY 340 max: with the assistant open at 1440 the grid is ~716 px, and a 400 px list left the viewer ~300 px. */
+.files-grid { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 @container content (max-width: 720px) { .files-grid { grid-template-columns: 1fr; } }
 .search-box { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); }
 .search-box .search-icon { width: 18px; height: 18px; color: var(--text-tertiary); flex: none; }
@@ -462,9 +465,10 @@ fieldset.form { border: 0; margin: 0; min-width: 0; }
 .ref-time { font-size: var(--text-sm); }
 
 .viewer { display: flex; flex-direction: column; position: sticky; top: var(--space-5); height: calc(100vh - var(--header-h) - 2 * var(--space-5)); min-height: 420px; overflow: hidden; }
-.viewer-head { display: flex; align-items: center; gap: var(--space-2); min-height: 56px; padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); border-bottom: 1px solid var(--border-subtle); }
+.viewer-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: 56px; padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4); border-bottom: 1px solid var(--border-subtle); }
 .viewer-head > .btn-icon:first-child { margin-left: calc(-1 * var(--space-2)); }
-.viewer-title { display: grid; flex: 1; min-width: 0; }
+/* WHY basis 200px: in a narrow viewer the buttons wrap to a second row instead of squeezing the title to one word a line. */
+.viewer-title { display: grid; flex: 1 1 200px; min-width: 0; }
 .viewer-title .ellipsis { max-width: none; font-size: var(--text-base); font-weight: 500; }
 .viewer-note { padding: 6px var(--space-4); font-size: var(--text-sm); color: var(--warn-text); background: var(--warn-subtle); }
 .viewer-empty { flex: 1; display: flex; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-6); color: var(--text-tertiary); font-size: var(--text-base); text-align: center; }

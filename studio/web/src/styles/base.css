@@ -79,9 +79,10 @@ a:hover { text-decoration: underline; }
   background: var(--bg-panel) var(--chevron) no-repeat right 10px center / 12px 12px;
 }
 .textarea { height: auto; min-height: 64px; padding: 6px 10px; resize: vertical; line-height: 1.3125rem; }
-.input:hover, .select:hover, .textarea:hover { border-color: var(--text-tertiary); }
+.input:hover:not(:disabled), .select:hover:not(:disabled), .textarea:hover:not(:disabled) { border-color: var(--text-tertiary); }
 .input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--focus-ring); box-shadow: 0 0 0 3px var(--accent-subtle); }
-.input:disabled, .select:disabled { background: var(--bg-sunken); color: var(--text-disabled); cursor: not-allowed; }
+.input:disabled, .select:disabled, .textarea:disabled { background: var(--bg-sunken); color: var(--text-disabled); cursor: not-allowed; }
+.textarea:disabled { resize: none; }
 
 /* panels: a white surface on gray, 1 px border, no shadow; never a panel inside a panel */
 .panel { background: var(--bg-panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); min-width: 0; }
