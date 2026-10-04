@@ -1,5 +1,5 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { OctagonX } from "lucide-react";
+import { MessageSquareText, OctagonX } from "lucide-react";
 import { studio, useStudio } from "../lib/studio";
 import { StatePill } from "./StatePill";
 
@@ -10,6 +10,7 @@ export function TopBar({ title, sub, onStop }: { title: string; sub: string; onS
   const loop = useStudio((s) => s.telemetry?.loop);
   const control = useStudio((s) => s.control);
   const link = useStudio((s) => s.link);
+  const assist = useStudio((s) => s.assist.open);
   const anyTorque = useStudio((s) => Object.values(s.telemetry?.arms ?? {}).some((a) => a.torque));
   // Stop is never disabled while any servo holds torque.
   const live = anyTorque || state?.state === "ARMED" || state?.state === "MOVING";
@@ -36,6 +37,10 @@ export function TopBar({ title, sub, onStop }: { title: string; sub: string; onS
             </Tooltip.Portal>
           </Tooltip.Root>
         )}
+        <button className={`btn btn-sm ask-btn ${assist ? "is-on" : ""}`} onClick={() => studio.toggleAssistant()}
+          aria-pressed={assist} aria-keyshortcuts="Meta+J">
+          <MessageSquareText aria-hidden /> Ask Claude <span className="kbd">⌘J</span>
+        </button>
         <StatePill s={link === "open" ? state : null} />
         {link === "open" && !control && (
           <button className="btn btn-sm" onClick={() => studio.send({ cmd: "take_control" })}>Take control</button>

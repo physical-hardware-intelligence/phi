@@ -1,4 +1,4 @@
-import { OctagonAlert, TriangleAlert, X } from "lucide-react";
+import { MessageSquareText, OctagonAlert, TriangleAlert, X } from "lucide-react";
 import { studio, useStudio } from "../lib/studio";
 
 const FAULT_FIX: Array<[RegExp, string]> = [
@@ -26,20 +26,22 @@ export function Notices() {
           fix="Open the link Studio printed in the terminal. Each launch makes a new one." />
       )}
       {link === "closed" && <Notice tone="warn" title="Connection lost. Reconnecting." fix="" />}
-      {exit && <Notice tone="danger" title={exit} fix="Run phi studio again. Motion stopped when the worker ended." />}
-      {s?.state === "FAULT" && s.fault && <Notice tone="danger" title={s.fault} fix={fixFor(s.fault)} />}
+      {exit && <Notice tone="danger" title={exit} fix="Run phi studio again. Motion stopped when the worker ended." ask />}
+      {s?.state === "FAULT" && s.fault && <Notice tone="danger" title={s.fault} fix={fixFor(s.fault)} ask />}
       {s?.state === "STOPPED" && s.stop_reason === "heartbeat" && (
         <Notice tone="warn" title="Motion stopped because this window stopped answering"
-          fix="Studio stops the arm when the controlling window is closed, frozen, or loses its connection. Resume when ready." />
+          fix="Studio stops the arm when the controlling window is closed, frozen, or loses its connection. Resume when ready." ask />
       )}
       {errors.map((e) => (
-        <Notice key={e.id} tone="warn" title={e.message} fix={e.fix} onDismiss={() => studio.dismissError(e.id)} />
+        <Notice key={e.id} tone="warn" title={e.message} fix={e.fix} onDismiss={() => studio.dismissError(e.id)} ask />
       ))}
     </div>
   );
 }
 
-function Notice({ tone, title, fix, onDismiss }: { tone: "warn" | "danger"; title: string; fix: string; onDismiss?: () => void }) {
+function Notice({ tone, title, fix, onDismiss, ask }: {
+  tone: "warn" | "danger"; title: string; fix: string; onDismiss?: () => void; ask?: boolean;
+}) {
   const Icon = tone === "danger" ? OctagonAlert : TriangleAlert;
   return (
     <div className={`notice tone-${tone}`} role={tone === "danger" ? "alert" : "status"}>
@@ -48,11 +50,18 @@ function Notice({ tone, title, fix, onDismiss }: { tone: "warn" | "danger"; titl
         <div className="notice-title">{title}</div>
         {fix && <div className="notice-fix">{fix}</div>}
       </div>
-      {onDismiss && (
-        <button className="btn btn-ghost btn-sm notice-x" onClick={onDismiss} aria-label="Dismiss">
-          <X aria-hidden />
-        </button>
-      )}
+      <div className="notice-actions">
+        {ask && (
+          <button className="btn btn-sm notice-ask" onClick={() => studio.openAssistant({ message: title, fix })}>
+            <MessageSquareText aria-hidden /> Ask Claude
+          </button>
+        )}
+        {onDismiss && (
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={onDismiss} aria-label="Dismiss">
+            <X aria-hidden />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

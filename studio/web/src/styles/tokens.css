@@ -1,104 +1,112 @@
-/* Design tokens, v2 (group/studio/DESIGN.md). Light "Paper" is the default; dark "Graphite" is one click
-   away. Neutrals are cool gray with a slight blue hue, never zero-chroma black. Cobalt is the accent for focus,
-   selection and links only; state colours are reserved for robot state; primary buttons are ink. */
+/* Design tokens, v3 "Instrument" (group/studio/DESIGN.md).
+   Type: the Mac's own SF Pro and SF Mono at 13 px, the size Xcode, Instruments and Finder use. Studio only ever
+   runs on this Mac, so a webfont buys nothing and makes it look like a website.
+   Colour: warm graphite neutrals (a faint yellow-red cast, never blue-black), one ink-blue accent for focus,
+   selection and links, and desaturated state colours that appear only where they carry robot state.
+   Light "Paper" is the default; dark "Graphite" is one click away. */
 :root {
   color-scheme: light;
-  --bg-app: #f4f5f7;
-  --bg-sidebar: #eceef2;
+  --bg-app: #f3f2ef;
+  --bg-sidebar: #ecebe7;
   --bg-panel: #ffffff;
-  --bg-sunken: #f6f7f9;
+  --bg-sunken: #f7f6f3;
   --bg-raised: #ffffff;
-  --bg-hover: #eceef2;
-  --bg-active: #e3e6ec;
-  --bg-selected: #e6ecfa;
-  --bg-video: #0d1015;
-  --border-subtle: #e1e4e9;
-  --border-strong: #cfd4dc;
-  --border-control: #c3c9d3;
-  --text-primary: #151920;
-  --text-secondary: #4a5263;
-  --text-tertiary: #737c8e;
-  --text-disabled: #a8afbb;
-  --text-on-video: #e9ecf2;
+  --bg-hover: #efeeea;
+  --bg-active: #e6e4df;
+  --bg-selected: #e5eaf1;
+  --nav-selected: rgb(29 28 26 / 0.085);
+  --nav-hover: rgb(29 28 26 / 0.045);
+  --bg-video: #0e0e0d;
+  --border-subtle: #e5e3de;
+  --border-strong: #d4d1ca;
+  --border-control: #cbc7bf;
+  --text-primary: #1d1c1a;
+  --text-secondary: #5b5852;
+  --text-tertiary: #8a867f;
+  --text-disabled: #b6b2aa;
+  --text-on-video: #ecebe7;
 
-  --accent: #2d5bd7;
-  --accent-text: #2449b0;
-  --accent-subtle: #e8eefc;
-  --focus-ring: #2d5bd7;
+  --accent: #33639a;
+  --accent-text: #2b5583;
+  --accent-subtle: #e8eef5;
+  --focus-ring: #3d6fa8;
 
-  --action-primary-bg: #1c2330;
-  --action-primary-hover: #2b3445;
-  --action-primary-fg: #ffffff;
-  --action-danger-bg: #cf3337;
-  --action-danger-hover: #b52a2e;
+  --action-primary-bg: #262522;
+  --action-primary-hover: #3b3a36;
+  --action-primary-fg: #fbfaf8;
+  --action-danger-bg: #b83a30;
+  --action-danger-hover: #a1322a;
   --action-danger-fg: #ffffff;
 
-  --ok-solid: #1d8a4b;     --ok-text: #156b39;     --ok-subtle: #e4f3ea;
-  --info-solid: #2f6fde;   --info-text: #2356b3;   --info-subtle: #e7effd;
-  --warn-solid: #c47a0c;   --warn-text: #8f5507;   --warn-subtle: #fcf1dc;
-  --danger-solid: #cf3337; --danger-text: #ad2529; --danger-subtle: #fbe9e9;
-  --neutral-solid: #737c8e; --neutral-text: #4a5263; --neutral-subtle: #eceef2;
+  --ok-solid: #3f7c54;     --ok-text: #2f6443;     --ok-subtle: #e7f0e9;
+  --info-solid: #3d6fa8;   --info-text: #2b5583;   --info-subtle: #e8eef5;
+  --warn-solid: #b5740f;   --warn-text: #85540a;   --warn-subtle: #f7eedc;
+  --danger-solid: #c0433a; --danger-text: #a1352d; --danger-subtle: #f8e7e4;
+  --neutral-solid: #8a867f; --neutral-text: #5b5852; --neutral-subtle: #efeeea;
 
-  --shadow-float: 0 1px 2px rgb(16 24 40 / 0.06), 0 12px 32px rgb(16 24 40 / 0.12);
-  --overlay: rgb(16 21 30 / 0.36);
+  --shadow-float: 0 0 0 0.5px rgb(29 28 26 / 0.12), 0 8px 28px rgb(29 28 26 / 0.14);
+  --overlay: rgb(29 28 26 / 0.32);
 
   --space-0-5: 2px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
   --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px; --space-9: 48px;
 
-  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 10px; --radius-2xl: 14px;
+  --radius-sm: 3px; --radius-md: 5px; --radius-lg: 6px; --radius-xl: 8px; --radius-2xl: 10px;
 
-  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 
-  --dur-fast: 100ms; --dur-base: 150ms; --dur-enter: 200ms;
+  --dur-fast: 90ms; --dur-base: 140ms; --dur-enter: 180ms;
   --ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
   --ease-enter: cubic-bezier(0, 0, 0.38, 0.9);
 
-  --sidebar-w: 236px;
-  --header-h: 60px;
-  --control-h: 36px;
-  --control-h-sm: 30px;
-  --row-h: 36px;
+  --sidebar-w: 216px;
+  --assist-w: 400px;
+  --header-h: 52px;
+  --control-h: 30px;
+  --control-h-sm: 26px;
+  --row-h: 34px;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg-app: #12151b;
-  --bg-sidebar: #0f1217;
-  --bg-panel: #181c24;
-  --bg-sunken: #151920;
-  --bg-raised: #1f2430;
-  --bg-hover: #212734;
-  --bg-active: #283041;
-  --bg-selected: #1f2a42;
-  --bg-video: #07090c;
-  --border-subtle: #262c38;
-  --border-strong: #343c4c;
-  --border-control: #404a5c;
-  --text-primary: #e8ebf1;
-  --text-secondary: #a7afbe;
-  --text-tertiary: #7f889a;
-  --text-disabled: #566071;
+  --bg-app: #1a1a19;
+  --bg-sidebar: #161615;
+  --bg-panel: #212120;
+  --bg-sunken: #1d1d1c;
+  --bg-raised: #2a2a28;
+  --bg-hover: #2a2a28;
+  --bg-active: #33332f;
+  --bg-selected: #27303b;
+  --nav-selected: rgb(255 255 255 / 0.085);
+  --nav-hover: rgb(255 255 255 / 0.04);
+  --bg-video: #0b0b0a;
+  --border-subtle: #2e2e2b;
+  --border-strong: #3c3b38;
+  --border-control: #4a4945;
+  --text-primary: #ebe9e5;
+  --text-secondary: #b2afa8;
+  --text-tertiary: #87847d;
+  --text-disabled: #5d5b56;
 
-  --accent: #7598f3;
-  --accent-text: #a1b8f7;
-  --accent-subtle: #1e2943;
-  --focus-ring: #7598f3;
+  --accent: #86a8d2;
+  --accent-text: #a4bedf;
+  --accent-subtle: #252f3b;
+  --focus-ring: #86a8d2;
 
-  --action-primary-bg: #e8ebf1;
+  --action-primary-bg: #ebe9e5;
   --action-primary-hover: #ffffff;
-  --action-primary-fg: #12151b;
-  --action-danger-bg: #d63c40;
-  --action-danger-hover: #e04f53;
+  --action-primary-fg: #1a1a19;
+  --action-danger-bg: #c4463c;
+  --action-danger-hover: #d1564b;
 
-  --ok-solid: #3dbb6f;     --ok-text: #7dd9a0;     --ok-subtle: #16301f;
-  --info-solid: #5b8ff0;   --info-text: #9dbcf8;   --info-subtle: #1b2a45;
-  --warn-solid: #e3a03a;   --warn-text: #f1c47c;   --warn-subtle: #3a2a12;
-  --danger-solid: #e2565a; --danger-text: #f59c9e; --danger-subtle: #42191b;
-  --neutral-solid: #7f889a; --neutral-text: #a7afbe; --neutral-subtle: #212734;
+  --ok-solid: #62a679;     --ok-text: #91c7a2;     --ok-subtle: #1f2a22;
+  --info-solid: #86a8d2;   --info-text: #a4bedf;   --info-subtle: #252f3b;
+  --warn-solid: #cf9a43;   --warn-text: #e2bc7b;   --warn-subtle: #33291b;
+  --danger-solid: #d66a5f; --danger-text: #eba59c; --danger-subtle: #392321;
+  --neutral-solid: #87847d; --neutral-text: #b2afa8; --neutral-subtle: #2a2a28;
 
-  --shadow-float: 0 0 0 1px var(--border-strong), 0 16px 40px rgb(0 0 0 / 0.5);
-  --overlay: rgb(0 0 0 / 0.55);
+  --shadow-float: 0 0 0 0.5px rgb(255 255 255 / 0.08), 0 12px 36px rgb(0 0 0 / 0.5);
+  --overlay: rgb(0 0 0 / 0.5);
 }
 
 @media (prefers-reduced-motion: reduce) {

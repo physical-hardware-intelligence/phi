@@ -1,16 +1,20 @@
-import { Bot, ClipboardCheck, Gamepad2, LayoutGrid, Moon, Ruler, Sun } from "lucide-react";
+import { Bot, ClipboardCheck, FolderOpen, Gamepad2, LayoutGrid, ListChecks, Moon, Ruler, Sun } from "lucide-react";
 import type { ComponentType } from "react";
 import { go, setTheme, useRoute, useStudio, useTheme, type Route } from "../lib/studio";
 
 interface Item { route: Route; label: string; icon: ComponentType<{ "aria-hidden"?: boolean }> }
 
-const OVERVIEW: Item = { route: "overview", label: "Overview", icon: LayoutGrid };
+const TOP: Item[] = [
+  { route: "overview", label: "Overview", icon: LayoutGrid },
+  { route: "checks", label: "Checks", icon: ListChecks },
+];
 const WORKFLOWS: Item[] = [
   { route: "calibrate", label: "Calibrate", icon: Ruler },
   { route: "teleop", label: "Teleoperate", icon: Gamepad2 },
   { route: "policy", label: "Run policy", icon: Bot },
   { route: "evaluate", label: "Evaluate", icon: ClipboardCheck },
 ];
+const REFERENCE: Item[] = [{ route: "files", label: "Files", icon: FolderOpen }];
 
 // Places on the left, the work on the right (Foxglove's layout). Each item may carry one live hint drawn
 // from session state, so the sidebar also answers "where is something happening".
@@ -44,10 +48,14 @@ export function Sidebar() {
           <span className="brand-rig">{mock ? "Mock rig" : "SO-101 rig"}{pairs ? `, ${pairs === 1 ? "1 arm pair" : `${pairs} arm pairs`}` : ""}</span>
         </div>
       </div>
-      <div className="nav-group">{item(OVERVIEW)}</div>
+      <div className="nav-group">{TOP.map(item)}</div>
       <div className="nav-group">
         <div className="nav-group-label">Workflows</div>
         {WORKFLOWS.map(item)}
+      </div>
+      <div className="nav-group">
+        <div className="nav-group-label">Reference</div>
+        {REFERENCE.map(item)}
       </div>
       <div className="sidebar-foot">
         <div className={`link-status tone-${link === "open" ? "ok" : link === "refused" ? "danger" : "warn"}`}>
@@ -69,7 +77,11 @@ type Hint = { text: string; tone: "ok" | "warn" | "danger" | "info"; dot?: boole
 function useHints(): Partial<Record<Route, Hint>> {
   const state = useStudio((s) => s.state);
   const needCal = useStudio((s) => s.identity.some((a) => !a.ok));
+  const fails = useStudio((s) => s.checks.results?.filter((r) => r.status === "fail").length ?? 0);
+  const warns = useStudio((s) => s.checks.results?.filter((r) => r.status === "warn").length ?? 0);
   const out: Partial<Record<Route, Hint>> = {};
+  if (fails) out.checks = { text: `${fails} failed`, tone: "danger", dot: true };
+  else if (warns) out.checks = { text: `${warns} ${warns === 1 ? "warning" : "warnings"}`, tone: "warn", dot: true };
   if (state?.state === "FAULT") out.overview = { text: "Fault", tone: "danger", dot: true };
   if (needCal) out.calibrate = { text: "Check", tone: "warn", dot: true };
   if (state?.state === "CALIBRATING") out.calibrate = { text: "Active", tone: "info", dot: true };

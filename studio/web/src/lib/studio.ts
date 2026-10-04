@@ -103,9 +103,61 @@ export interface EvalRecord extends EvalSummary { episodes: Episode[] }
 export interface EvalState { current: EvalRecord | null; past: EvalSummary[]; dir: string }
 
 export interface StudioError { id: number; message: string; fix: string; at: number }
-export interface ActivityEntry { id: number; at: number; tone: Tone; text: string; detail?: string }
+export interface ActivityEntry { id: number; at: number; tone: Tone; text: string; detail?: string; ask?: boolean } // ask: a problem Claude can help with
 
 export type Link = "connecting" | "open" | "closed" | "refused";
+
+// -- assistant and files ---------------------------------------------------------------------------
+export interface Focus { message: string; fix?: string } // the error a question is about
+export interface AssistStatus { available: boolean; signed_in: boolean; method: string | null; model: string | null; error: string | null; fix: string | null }
+export type Part = { kind: "text"; text: string } | { kind: "tool"; text: string };
+export interface Turn {
+  id: number;
+  question: string;
+  focus: Focus | null;
+  page: string;
+  parts: Part[];
+  state: "waiting" | "streaming" | "done" | "stopped" | "error";
+  error?: { message: string; fix: string | null };
+  ms?: number | null;
+}
+export interface Assist {
+  open: boolean;
+  status: AssistStatus | null; // null: not checked yet
+  turns: Turn[];
+  focus: Focus | null; // attached to the next question
+  context: string | null; // the last context block the server showed us
+}
+export interface FileRoot { key: string; label: string; path: string }
+export interface FileRef { root: string; path: string; label?: string; id?: string; kind?: string; mtime: number }
+export interface FilesIndex { roots: FileRoot[]; notes: FileRef[]; calibrations: FileRef[] }
+export interface OpenFile { root: string; path: string; abs: string; text: string; size: number; mtime: number; truncated: boolean; line: number | null }
+export interface SearchHit { root: string; path: string; line: number; text: string }
+export interface SearchResult { query: string; hits: SearchHit[]; scanned: number; stopped: boolean }
+export interface SerialPort { device: string; tty: string | null; description: string | null; vid: number | null; pid: number | null; serial: string | null; manufacturer: string | null; usb: boolean; arm: string | null }
+export interface Ports { ports: SerialPort[]; error: string | null; fix: string | null; at: number }
+export interface FilesState {
+  index: FilesIndex | null;
+  open: OpenFile | null;
+  loading: string | null; // the path being opened
+  error: { message: string; path: string | null } | null;
+  search: SearchResult | null;
+  searching: string | null;
+  ports: Ports | null;
+}
+
+// -- checks ----------------------------------------------------------------------------------------
+export type CheckStatus = "pass" | "info" | "warn" | "fail" | "skip";
+export interface CheckResult {
+  id: string;
+  group: "This Mac" | "Rig" | "Studio";
+  title: string;
+  status: CheckStatus;
+  detail: string;
+  fix: string | null;
+  file: { root: string; path: string; line: number | null } | null;
+}
+export interface ChecksState { running: boolean; at: number | null; ms: number | null; results: CheckResult[] | null }
 
 export interface Snapshot {
   link: Link;
@@ -121,6 +173,9 @@ export interface Snapshot {
   rig: RigInfo | null;
   evals: EvalState | null; // null: this Studio has no data directory
   calibrated: { arm: string; path: string | null; at: number } | null; // the last save, for the Calibrate page
+  assist: Assist;
+  files: FilesState;
+  checks: ChecksState;
 }
 
 export interface Frame { key: string; t: number; seq: number; w: number; h: number; jpeg: Blob }
@@ -141,7 +196,11 @@ class Studio {
     link: "connecting", mock: false, control: false, state: null, identity: [],
     telemetry: null, errors: [], workerExit: null, cameras: {}, activity: [], rig: null, evals: null,
     calibrated: null,
+    assist: { open: false, status: null, turns: [], focus: null, context: null },
+    files: { index: null, open: null, loading: null, error: null, search: null, searching: null, ports: null },
+    checks: { running: false, at: null, ms: null, results: null },
   };
+  private turnId = 0;
   private activityId = 0;
 
   token(): string {
@@ -201,15 +260,101 @@ class Studio {
 
   localError(message: string, fix: string): void {
     const e = { id: ++this.errorId, message, fix, at: Date.now() };
-    this.set({ errors: [...this.snap.errors.slice(-4), e], activity: this.logged("warn", message, fix) });
+    this.set({ errors: [...this.snap.errors.slice(-4), e], activity: this.logged("warn", message, fix, true) });
   }
 
-  private logged(tone: Tone, text: string, detail?: string): ActivityEntry[] {
-    const e = { id: ++this.activityId, at: Date.now(), tone, text, detail };
+  /** A new activity entry. A danger entry is always a problem; a warn entry is one only when the caller says
+   * so, because state changes such as "Confirm arms" use the warn tone for a normal next step. */
+  private logged(tone: Tone, text: string, detail?: string, ask = tone === "danger"): ActivityEntry[] {
+    const e = { id: ++this.activityId, at: Date.now(), tone, text, detail, ask };
     return [e, ...this.snap.activity].slice(0, 200);
   }
 
   dismissError(id: number): void { this.set({ errors: this.snap.errors.filter((e) => e.id !== id) }); }
+
+  // -- assistant ---------------------------------------------------------------------------------
+  private setAssist(p: Partial<Assist>): void { this.set({ assist: { ...this.snap.assist, ...p } }); }
+  private setFiles(p: Partial<FilesState>): void { this.set({ files: { ...this.snap.files, ...p } }); }
+  private lastTurn(fn: (t: Turn) => Turn): void {
+    const turns = this.snap.assist.turns;
+    if (turns.length) this.setAssist({ turns: [...turns.slice(0, -1), fn(turns[turns.length - 1])] });
+  }
+
+  /** Open the panel, optionally about one error. Checks Claude's sign-in the first time. */
+  openAssistant(focus?: Focus): void {
+    this.setAssist({ open: true, focus: focus ?? this.snap.assist.focus });
+    if (!this.snap.assist.status) this.send({ cmd: "assist_status" });
+  }
+  closeAssistant(): void { this.setAssist({ open: false }); }
+  toggleAssistant(): void { if (this.snap.assist.open) this.closeAssistant(); else this.openAssistant(); }
+  clearFocus(): void { this.setAssist({ focus: null }); }
+  checkAssistant(): void { this.setAssist({ status: null }); this.send({ cmd: "assist_status" }); }
+  showContext(): void { this.send({ cmd: "assist_context", page: readRoute(), focus: this.snap.assist.focus }); }
+
+  ask(question: string): boolean {
+    const a = this.snap.assist;
+    const busy = a.turns.some((t) => t.state === "waiting" || t.state === "streaming");
+    if (busy || !question.trim()) return false;
+    const page = readRoute();
+    if (!this.send({ cmd: "assist_ask", text: question, page, focus: a.focus })) {
+      this.localError("Claude cannot be asked while this window is offline", "Wait for it to reconnect.");
+      return false;
+    }
+    const turn: Turn = { id: ++this.turnId, question, focus: a.focus, page, parts: [], state: "waiting" };
+    this.setAssist({ turns: [...a.turns, turn], focus: null, context: null });
+    return true;
+  }
+  stopAnswer(): void { this.send({ cmd: "assist_stop" }); }
+  newChat(): void { this.send({ cmd: "assist_reset" }); this.setAssist({ turns: [], focus: null, context: null }); }
+
+  private onAssist(m: any): void {
+    switch (m.kind) {
+      case "start": this.lastTurn((t) => ({ ...t, state: "streaming" })); break;
+      case "delta":
+        this.lastTurn((t) => {
+          const parts = [...t.parts];
+          const end = parts[parts.length - 1];
+          if (end?.kind === "text") parts[parts.length - 1] = { kind: "text", text: end.text + m.text };
+          else parts.push({ kind: "text", text: m.text });
+          return { ...t, parts, state: "streaming" };
+        });
+        break;
+      case "tool": this.lastTurn((t) => ({ ...t, parts: [...t.parts, { kind: "tool", text: m.text }] })); break;
+      case "done": this.lastTurn((t) => ({ ...t, state: m.stopped ? "stopped" : "done", ms: m.duration_ms })); break;
+      case "error":
+        if (/not signed in|not installed/i.test(m.message)) this.send({ cmd: "assist_status" });
+        this.lastTurn((t) => ({ ...t, state: "error", error: { message: m.message, fix: m.fix } }));
+        break;
+      case "limit":
+        this.lastTurn((t) => ({ ...t, parts: [...t.parts, { kind: "tool", text: `Usage limit: ${m.status}` }] }));
+        break;
+    }
+  }
+
+  // -- checks ------------------------------------------------------------------------------------
+  /** Run every pre-flight check. Read-only, so any window may. */
+  runChecks(): void {
+    if (this.snap.checks.running) return;
+    if (!this.send({ cmd: "checks_run" })) {
+      this.localError("Checks cannot run while this window is offline", "Wait for it to reconnect.");
+      return;
+    }
+    this.set({ checks: { ...this.snap.checks, running: true } });
+  }
+
+  // -- files -------------------------------------------------------------------------------------
+  loadFiles(): void { this.send({ cmd: "files_index" }); this.refreshPorts(); }
+  refreshPorts(): void { this.send({ cmd: "ports" }); }
+  /** Open a file in the Files page. `root` omitted: the server finds which root holds `path`. */
+  openFile(path: string, line?: number | null, root?: string): void {
+    go("files");
+    this.setFiles({ loading: path, error: null });
+    this.send({ cmd: "file_read", path, line: line ?? null, ...(root ? { root } : {}) });
+  }
+  search(query: string): void {
+    this.setFiles({ searching: query, error: null });
+    this.send({ cmd: "files_search", query });
+  }
 
   private onJson(m: any): void {
     switch (m.type) {
@@ -244,6 +389,27 @@ class Studio {
       case "camera": this.set({ cameras: { ...this.snap.cameras, [m.key]: { online: m.online, message: m.message } } }); break;
       case "worker_exit": this.set({ workerExit: m.message, activity: this.logged("danger", m.message) }); break;
       case "error": this.localError(m.message, m.fix ?? ""); break;
+      case "assist": this.onAssist(m); break;
+      case "assist_status": this.setAssist({ status: m }); break;
+      case "assist_context": this.setAssist({ context: m.text }); break;
+      case "files": this.setFiles({ index: { roots: m.roots, notes: m.notes, calibrations: m.calibrations } }); break;
+      case "file": this.setFiles({ open: { root: m.root, path: m.path, abs: m.abs, text: m.text, size: m.size, mtime: m.mtime, truncated: m.truncated, line: m.line }, loading: null, error: null }); break;
+      case "file_error":
+        this.setFiles(this.snap.files.searching ? { searching: null, error: { message: m.message, path: m.path } } : { loading: null, error: { message: m.message, path: m.path } });
+        break;
+      case "search": this.setFiles({ search: m, searching: null }); break;
+      case "ports": this.setFiles({ ports: { ...m, at: Date.now() } }); break;
+      case "checks": {
+        const bad = (m.results as CheckResult[]).filter((r) => r.status === "fail").length;
+        const warn = (m.results as CheckResult[]).filter((r) => r.status === "warn").length;
+        this.set({
+          checks: { running: false, at: m.at * 1000, ms: m.ms, results: m.results },
+          activity: this.logged(bad ? "danger" : warn ? "warn" : "ok", "Ran checks",
+            [bad && `${bad} failed`, warn && `${warn} ${warn === 1 ? "warning" : "warnings"}`].filter(Boolean).join(", ")
+              || "everything Studio can check passed", Boolean(bad || warn)),
+        });
+        break;
+      }
     }
   }
 
@@ -283,8 +449,8 @@ export function useStudio<T>(select: (s: Snapshot) => T): T {
 }
 
 // -- routing and theme -------------------------------------------------------------------------
-export type Route = "overview" | "calibrate" | "teleop" | "policy" | "evaluate";
-export const ROUTES: Route[] = ["overview", "calibrate", "teleop", "policy", "evaluate"];
+export type Route = "overview" | "checks" | "calibrate" | "teleop" | "policy" | "evaluate" | "files";
+export const ROUTES: Route[] = ["overview", "checks", "calibrate", "teleop", "policy", "evaluate", "files"];
 
 function readRoute(): Route {
   const r = location.hash.replace(/^#\/?/, "") as Route;

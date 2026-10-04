@@ -180,7 +180,12 @@ function Activity() {
               <time className="log-time num">{new Date(e.at).toLocaleTimeString([], { hour12: false })}</time>
               {e.tone === "danger" || e.tone === "warn" ? <CircleAlert className="log-icon" aria-hidden /> : <span className="dot" />}
               <span className="log-text">{e.text}</span>
-              {e.detail && <span className="log-detail">{e.detail}</span>}
+              <span className="log-detail">{e.detail}</span>
+              {e.ask ? (
+                <button className="btn btn-ghost btn-sm log-ask" onClick={() => studio.openAssistant({ message: e.text, fix: e.detail })}>
+                  Ask Claude
+                </button>
+              ) : <span />}
             </li>
           ))}
         </ul>
