@@ -435,10 +435,12 @@ ROLE_KIND = {"leader": "teleoperators", "follower": "robots"}
 
 
 def _cal_targets(inp: Inputs, arms: list[ConfigArm]) -> dict[tuple[str, str | None], Path | None]:
-    """(arm id, calibration subfolder) -> the exact file when known. One id can name a leader
-    and a follower, which LeRobot keeps apart (calibration/robots/, calibration/teleoperators/).
-    WHY not narrow by the config's `type`: LeRobot names the folder after the class
-    (robots/so_follower) while the config uses an alias (so101_follower); robots/robot.py:49."""
+    """(arm id, calibration subfolder) -> the exact file LeRobot reads, when known. One id can
+    name a leader and a follower, which LeRobot keeps apart (calibration/robots/,
+    .../teleoperators/).
+    WHY the class folder from rigspec.FOLDER, not the config's `type`: LeRobot names the folder
+    after the class (robots/so_follower) while the config uses an alias (so101_follower);
+    robots/robot.py:49. A file under any other folder is never read, so it cannot pass."""
     out: dict[tuple[str, str | None], Path | None] = {}
     if inp.rig_kind == "mock":
         # WHY not the mock's arms: the mock keeps its calibrations in memory and writes a file
@@ -451,10 +453,23 @@ def _cal_targets(inp: Inputs, arms: list[ConfigArm]) -> dict[tuple[str, str | No
         for a in inp.identity:
             if a.get("expected"):
                 out.setdefault((a["expected"], ROLE_KIND.get(a.get("role", ""))), None)
+    cal_root = inp.roots.get("calibration")
     for c in arms:
-        exact = Path(c.cal_dir) / f"{c.id}.json" if c.cal_dir else None  # as LeRobot reads it
-        out.setdefault((c.id, c.kind), exact)
+        if c.cal_dir:  # as LeRobot reads it
+            exact: Path | None = Path(c.cal_dir) / f"{c.id}.json"
+        elif cal_root is not None:
+            exact = cal_root / c.kind / rigspec.FOLDER[c.role][1] / f"{c.id}.json"
+        else:
+            exact = None
+        if out.get((c.id, c.kind)) is None:  # the config's exact path beats an id the rig reported
+            out[(c.id, c.kind)] = exact
     return out
+
+
+# WHY two places: Studio's Calibrate page writes only the mock rig's files (worker.py
+# mock-calibration, and cli.py exits without --mock), so an arm in robot-config.yaml is calibrated
+# by lerobot-calibrate.
+CAL_REAL = "run that arm's Calibrate command on the LeRobot setup page"
 
 
 def check_calibrations(inp: Inputs) -> dict[str, Any]:
@@ -477,29 +492,32 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
             title,
             "warn",
             "No calibration folder exists yet.",
-            "Calibrate each arm on the Calibrate page.",
+            "Run the Calibrate commands on the LeRobot setup page.",
         )
     every = [p for d in dirs for p in sorted(d.rglob("*.json"))]
     missing: list[str] = []
+    moves: list[tuple[Path, Path]] = []  # (a file LeRobot does not read, where it would)
     bad: list[tuple[str, list[str], Path]] = []
     stale: list[tuple[str, Path, Path]] = []  # (id, a valid file, an invalid one with the same id)
     for (i, kind), exact in targets.items():
-        files = (
-            [exact]
-            if exact
-            else [p for p in every if p.stem == i and (kind is None or kind in p.parts)]
-        )
-        files = [f for f in dict.fromkeys(files) if f.is_file()]
+        loose = [p for p in every if p.stem == i and (kind is None or kind in p.parts)]
+        files = [f for f in dict.fromkeys([exact] if exact else loose) if f.is_file()]
+        # WHY look past the exact file: a copy under another folder (an older LeRobot's
+        # so101_follower, say) is never read, so it can only explain a miss or be stale.
+        extra = [f for f in dict.fromkeys(loose) if exact and f != exact and f.is_file()]
         if not files:
-            missing.append(f"{i} ({kind[:-1]})" if kind else i)
+            where = f", found only at {extra[0]}, which LeRobot does not read" if extra else ""
+            missing.append((f"{i} ({kind[:-1]})" if kind else i) + where)
+            if extra and exact:
+                moves.append((extra[0], exact))
             continue
         verdicts = []
-        for f in files:
+        for f in [*files, *extra]:
             try:
                 verdicts.append((f, calibration_problems(json.loads(f.read_text()))))
             except (OSError, ValueError) as e:
                 verdicts.append((f, [f"unreadable ({e})"]))
-        good = [f for f, probs in verdicts if not probs]
+        good = [f for f, probs in verdicts[: len(files)] if not probs]
         for f, probs in verdicts:
             if probs and good:
                 stale.append((i, good[0], f))
@@ -512,9 +530,11 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
             "This Mac",
             title,
             "fail",
-            f"No calibration file for {', '.join(missing)}. Looked in "
+            f"No calibration file for {'; '.join(missing)}. Looked in "
             f"{', '.join(str(d) for d in dict.fromkeys([*dirs, *exact_dirs]))}.",
-            "Calibrate that arm on the Calibrate page, or check its id in robot-config.yaml.",
+            (f"Move {'; '.join(f'{s.name} into {d.parent}' for s, d in moves)}, or {CAL_REAL}."
+             if moves
+             else f"{CAL_REAL[0].upper()}{CAL_REAL[1:]}, or check its id in robot-config.yaml."),
         )
     if bad:
         i, problems, path = bad[0]
@@ -525,8 +545,10 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
             title,
             "fail",
             f"{i}: {'; '.join(problems)} ({path.parent.name}/{path.name}).{more}",
-            "Calibrate that arm again on the Calibrate page and move every joint through its "
-            "full range.",
+            ("Calibrate that arm again on the Calibrate page"
+             if inp.rig_cal_dir is not None and inp.rig_cal_dir in path.parents
+             else f"{CAL_REAL[0].upper()}{CAL_REAL[1:]} again")
+            + " and move every joint through its full range.",
             _ref(inp, path),
         )
     if stale:

@@ -414,10 +414,16 @@ def lerobot_commands(spec: RigSpec) -> list[dict[str, str]]:
                         "lerobot-teleoperate", [*args, "--display_data=true"]))  # fmt: skip
         rec = [*args, "--dataset.repo_id=<hf_user>/<dataset>", "--dataset.single_task=<task>",
                "--dataset.num_episodes=10", "--display_data=true"]  # fmt: skip
+        # WHY: a camera left out of --robot.cameras is a dataset with no frames from it, so the
+        # command that writes the dataset says so, not only the Dataset keys panel.
+        left_out = [c.feature for c in spec.cameras if not _usable(c)]
+        gap = (f" It leaves out {', '.join(left_out)}: no usable device in robot-config.yaml, "
+               "so the dataset gets no frames from " + ("it." if len(left_out) == 1 else "them.")
+               if left_out else "")  # fmt: skip
         # keyboard_input.py:160-170; push_to_hub defaults to true (configs/dataset.py:43)
         out.append(_cmd("record", "Record a dataset",
                         "Right arrow ends an episode early, left arrow records it again, Esc "
                         "stops. It uploads to the Hub at the end unless "
-                "--dataset.push_to_hub=false.",
+                        "--dataset.push_to_hub=false." + gap,
                         "lerobot-record", rec))  # fmt: skip
     return out

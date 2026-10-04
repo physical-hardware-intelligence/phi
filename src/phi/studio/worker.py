@@ -453,7 +453,11 @@ class RigWorker:
     def _cmd_disconnect(self, msg: dict[str, Any]) -> None:
         self._cal_abort()
         self._release_all()
-        self.run = None
+        # WHY keep the run: Disconnect is how the scene gets reset, and an ended eval episode must
+        # stay judgeable after it. Dropping the run lost it from the eval record with no message.
+        if self.run is not None and self.run.running:
+            self.run.running, self.run.ended = False, "disconnected"
+        self.health.clear()  # a reading from a rig that is gone would stay on screen for good
         self.identity = []
         self.send({"type": "identity", "arms": []})  # so no window keeps showing a rig that is gone
         self.session.disconnected()

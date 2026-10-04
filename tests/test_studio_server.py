@@ -355,6 +355,9 @@ def test_evals_are_kept_by_the_server_saved_and_shown_to_every_window(tmp_path: 
                         "task": "cube in box", "limit_s": 1})  # fmt: skip
             err = await until(a, lambda d: d["type"] == "error", beat=True)
             assert "not judged" in err["message"]
+            await send({"cmd": "disconnect"})  # resetting the scene must not lose the episode
+            await until(a, lambda d: d["type"] == "state" and d["state"] == "DISCONNECTED",
+                        beat=True)  # fmt: skip
 
             await send({"cmd": "eval_mark", "outcome": "success", "note": "ok", "run_id": run_id})
             ev = await until(a, lambda d: d["type"] == "eval" and d["current"]["n"] == 1, beat=True)
@@ -569,3 +572,13 @@ def test_a_read_only_command_that_crashes_still_answers_its_window(
             await server.close()
 
     run(go())
+
+
+def test_claudes_context_reports_the_largest_load_by_size_not_sign() -> None:
+    # Load is signed by direction; the Checks page and the joint table compare its size.
+    studio, _ = offline_studio()
+    hp = {"temp": 30.0, "volt": 12.0, "faults": []}
+    studio.telemetry = {"arms": {"follower": {"role": "follower", "health": {
+        "gripper": {**hp, "load": -95.0}, "shoulder_pan": {**hp, "load": 5.0}}}}}
+    arm = json.loads(studio.context())["arms"]["follower"]
+    assert arm["max_load_pct"] == 95.0

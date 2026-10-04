@@ -353,7 +353,8 @@ def test_telemetry_shows_torque_off_after_disconnect() -> None:
     run(w, clock, 0.2)
     w.handle({"cmd": "disconnect"})
     run(w, clock, 0.2)
-    assert of(out, "telemetry")[-1]["arms"]["follower"]["torque"] is False
+    t = of(out, "telemetry")[-1]["arms"]["follower"]
+    assert t["torque"] is False and t["health"] == {}  # no frozen readings from a rig that is gone
 
 
 def test_torque_left_on_by_an_earlier_session_is_read_back() -> None:

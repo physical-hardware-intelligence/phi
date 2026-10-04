@@ -172,6 +172,7 @@ def test_calibration_files_pass_missing_and_bad(tmp_path: Path) -> None:
         mac(tmp_path / "c", cals={"phi_follower": good_cal(), "phi_leader": bad})
     )
     assert r["status"] == "fail" and "Gripper did not move" in r["detail"]
+    assert r["fix"].startswith("Run that arm's Calibrate command on the LeRobot setup page again")
     assert r["file"] == {
         "root": "calibration",
         "path": "teleoperators/so_leader/phi_leader.json",
@@ -202,6 +203,26 @@ def test_calibration_is_checked_per_kind_not_by_name(tmp_path: Path) -> None:
     r = C.check_calibrations(inp)
     assert r["status"] == "warn" and "so100_follower" in r["detail"]
     assert r["file"]["path"] == "robots/so100_follower/phi_follower.json"
+
+
+def test_a_file_lerobot_does_not_read_does_not_pass(tmp_path: Path) -> None:
+    # LeRobot 0.6.0 reads only calibration/<kind>/<so_follower|so_leader>/<id>.json
+    # (robot.py:49-51).
+    # Valid files under an older class folder must fail, and the detail must say where they are.
+    inp = mac(tmp_path, cals={})
+    for sub, name in (
+        (("robots", "so101_follower"), "phi_follower"),
+        (("teleoperators", "so101_leader"), "phi_leader"),
+    ):
+        f = tmp_path.joinpath("cal", *sub, f"{name}.json")
+        f.parent.mkdir(parents=True)
+        f.write_text(json.dumps(good_cal()))
+    r = C.check_calibrations(inp)
+    assert r["status"] == "fail"
+    assert "phi_follower" in r["detail"] and "so101_follower" in r["detail"]
+    assert "does not read" in r["detail"]
+    assert f"phi_follower.json into {tmp_path / 'cal' / 'robots' / 'so_follower'}" in r["fix"]
+    assert "LeRobot setup page" in r["fix"] and "the Calibrate page" not in r["fix"]
 
 
 def test_tty_and_cu_names_of_one_port_are_a_duplicate(tmp_path: Path) -> None:
@@ -417,6 +438,7 @@ def test_mock_arms_need_no_file_but_a_written_mock_file_is_checked(tmp_path: Pat
     f.write_text(json.dumps(bad))
     r = C.check_calibrations(inp)
     assert r["status"] == "fail" and "left_follower: Wrist Roll homing offset" in r["detail"]
+    assert r["fix"].startswith("Calibrate that arm again on the Calibrate page")
     assert r["file"] == {
         "root": "studio",
         "path": "mock-calibration/robots/so_follower/left_follower.json",

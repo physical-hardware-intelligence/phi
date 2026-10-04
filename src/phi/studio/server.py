@@ -489,7 +489,8 @@ class Studio:
             arms[name] = {"role": a.get("role"), "online": a.get("online"),
                           "torque": a.get("torque"),
                           "max_temp_c": max((x["temp"] for x in h.values()), default=None),
-                          "max_load_pct": max((x["load"] for x in h.values()), default=None),
+                          "max_load_pct": max((abs(x["load"]) for x in h.values()),
+                                              default=None),  # load is signed by direction
                           "min_volt": min((x["volt"] for x in h.values()), default=None),
                           "faults": {j: x["faults"] for j, x in h.items() if x["faults"]},
                           "position_deg": a.get("pos")}  # fmt: skip

@@ -156,8 +156,13 @@ def test_problems_lerobot_would_hit():
 
 def test_placeholder_cameras_stay_out_of_commands():
     text = SINGLE.replace("index_or_path: 0", "index_or_path: TBD")
-    cmds = {c["id"]: c["cmd"] for c in rigspec.parse(text).commands()}
-    assert "--robot.cameras" not in cmds["teleoperate"]
+    spec = rigspec.parse(text)
+    cmds = {c["id"]: c for c in spec.commands()}
+    assert "--robot.cameras" not in cmds["teleoperate"]["cmd"]
+    assert "--robot.cameras" not in cmds["record"]["cmd"]
+    left_out = [c.feature for c in spec.cameras]
+    assert left_out and all(f in cmds["record"]["why"] for f in left_out)
+    assert "leaves out" not in rigspec.parse(SINGLE).commands()[-1]["why"]
 
 
 def _args(text: str, cmd_id: str) -> list[str]:
