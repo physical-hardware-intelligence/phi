@@ -2,6 +2,7 @@ import { Camera, CameraOff, Check, ChevronRight, CircleAlert } from "lucide-reac
 import type { ReactNode } from "react";
 import { go, studio, useStudio, type Route, type Tone } from "../lib/studio";
 import { Notices } from "../components/Notices";
+import { label } from "../lib/labels";
 
 type StepStatus = "done" | "next" | "blocked" | "open";
 interface Step { n: number; title: string; status: StepStatus; detail: string; action?: ReactNode }
@@ -67,10 +68,7 @@ export function Overview() {
       <Notices />
       <section className="panel workflow">
         <div className="panel-head">
-          <div>
-            <h2 className="panel-title">Workflow</h2>
-            <p className="panel-sub">From a powered rig to a measured policy</p>
-          </div>
+          <h2 className="panel-title">Workflow</h2>
         </div>
         <ol className="steps">
           {steps.map((st) => (
@@ -101,10 +99,7 @@ function RigHealth() {
   return (
     <section className="panel health">
       <div className="panel-head">
-        <div>
-          <h2 className="panel-title">Rig health</h2>
-          <p className="panel-sub">Live from the servos and cameras</p>
-        </div>
+        <h2 className="panel-title">Rig health</h2>
       </div>
       {identity.length === 0 ? (
         <p className="empty">{state === "DISCONNECTED" || !state ? "Connect the rig to read its arms." : "Reading arms."}</p>
@@ -122,7 +117,7 @@ function RigHealth() {
                 <tr key={a.name}>
                   <td>
                     <div className="arm-cell">
-                      <span className="strong">{a.name}</span>
+                      <span className="strong">{label(a.name)}</span>
                       <span className="faint t-cap">{a.role === "leader" ? "Leader" : "Follower"}</span>
                     </div>
                   </td>
@@ -149,7 +144,7 @@ function RigHealth() {
             {Object.entries(cams).map(([k, c]) => (
               <li key={k} className={!live ? "" : c.online ? "" : "text-danger"}>
                 {c.online && live ? <Camera aria-hidden /> : <CameraOff aria-hidden />}
-                <span>{k}</span>
+                <span>{label(k)}</span>
                 <span className="faint">{!live ? "unknown while offline" : c.online ? "streaming" : c.message ?? "no signal"}</span>
               </li>
             ))}
@@ -169,10 +164,8 @@ function Activity() {
   return (
     <section className="panel activity">
       <div className="panel-head">
-        <div>
-          <h2 className="panel-title">Activity</h2>
-          <p className="panel-sub">State changes and errors in this session, newest first</p>
-        </div>
+        <h2 className="panel-title">Activity</h2>
+        <span className="panel-sub">This session, newest first</span>
       </div>
       {items.length === 0 ? (
         <p className="empty">Nothing yet.</p>

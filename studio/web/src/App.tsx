@@ -10,6 +10,7 @@ import { Evaluate } from "./pages/Evaluate";
 import { Files } from "./pages/Files";
 import { Overview } from "./pages/Overview";
 import { Policy } from "./pages/Policy";
+import { Setup } from "./pages/Setup";
 import { Teleop } from "./pages/Teleop";
 
 // WHY lazy: the panel carries the markdown renderer, a third of the bundle, and most sessions never open it.
@@ -22,6 +23,7 @@ const PAGES: Record<Route, { title: string; sub: string; el: ComponentType }> = 
   teleop: { title: "Teleoperate", sub: "Drive each follower with its leader", el: Teleop },
   policy: { title: "Run policy", sub: "Run a trained policy on the followers", el: Policy },
   evaluate: { title: "Evaluate", sub: "Judge episodes and measure the success rate", el: Evaluate },
+  setup: { title: "LeRobot setup", sub: "Your rig as LeRobot reads robot-config.yaml, and the commands for it", el: Setup },
   files: { title: "Files", sub: "Serial ports, rig notes, calibration files and code on this Mac", el: Files },
 };
 

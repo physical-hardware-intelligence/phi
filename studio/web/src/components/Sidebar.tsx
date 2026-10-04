@@ -1,4 +1,4 @@
-import { Bot, ClipboardCheck, FolderOpen, Gamepad2, LayoutGrid, ListChecks, Moon, Ruler, Sun } from "lucide-react";
+import { Bot, ClipboardCheck, FolderOpen, Gamepad2, LayoutGrid, ListChecks, Moon, Ruler, Sun, TerminalSquare } from "lucide-react";
 import type { ComponentType } from "react";
 import { go, setTheme, useRoute, useStudio, useTheme, type Route } from "../lib/studio";
 
@@ -14,7 +14,10 @@ const WORKFLOWS: Item[] = [
   { route: "policy", label: "Run policy", icon: Bot },
   { route: "evaluate", label: "Evaluate", icon: ClipboardCheck },
 ];
-const REFERENCE: Item[] = [{ route: "files", label: "Files", icon: FolderOpen }];
+const REFERENCE: Item[] = [
+  { route: "setup", label: "LeRobot setup", icon: TerminalSquare },
+  { route: "files", label: "Files", icon: FolderOpen },
+];
 
 // Places on the left, the work on the right (Foxglove's layout). Each item may carry one live hint drawn
 // from session state, so the sidebar also answers "where is something happening".
@@ -24,6 +27,7 @@ export function Sidebar() {
   const mock = useStudio((s) => s.mock);
   const link = useStudio((s) => s.link);
   const pairs = useStudio((s) => s.identity.filter((a) => a.role === "follower").length);
+  const bimanual = useStudio((s) => s.rig?.bimanual ?? false);
   const hint = useHints();
 
   const item = (it: Item) => {
@@ -45,7 +49,7 @@ export function Sidebar() {
         <span className="brand-mark" aria-hidden>Φ</span>
         <div className="brand-text">
           <span className="brand-name">Phi Studio</span>
-          <span className="brand-rig">{mock ? "Mock rig" : "SO-101 rig"}{pairs ? `, ${pairs === 1 ? "1 arm pair" : `${pairs} arm pairs`}` : ""}</span>
+          <span className="brand-rig">{mock ? "Mock rig" : "SO-101 rig"}{bimanual ? ", bimanual" : pairs ? ", single arm" : ""}</span>
         </div>
       </div>
       <div className="nav-group">{TOP.map(item)}</div>

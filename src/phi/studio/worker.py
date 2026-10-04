@@ -30,9 +30,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from phi.studio import rigspec
 from phi.studio.identity import Calibration, JointCal, match_fingerprint, save_calibration
 from phi.studio.policy import Policy, PolicyInfo, catalog, is_finite_number
-from phi.studio.rig import BUS_ERRORS, JOINTS, ArmBus, JointHealth
+from phi.studio.rig import BUS_ERRORS, JOINTS, ArmBus, JointHealth, label, labels
 from phi.studio.session import IllegalTransition, Session, State
 
 # WHY these step limits: LeRobot's max_relative_target defaults to None (config_so_follower.py:36),
@@ -106,29 +107,43 @@ class PolicyRun:
 
 
 def pair_arms(arms: list[ArmBus]) -> list[tuple[ArmBus, ArmBus]]:
-    """(leader, follower) pairs by name: `x_leader` drives `x_follower`."""
+    """(leader, follower) pairs by side, left with left, as LeRobot's bi_so_* classes pair them
+    (bi_so_follower.py:128-138). Arms without a side fall back to the name: `x_leader` drives
+    `x_follower`."""
     by_name = {a.name: a for a in arms}
     pairs = []
-    for f in arms:
-        if f.role == "follower":
+    for f in (a for a in arms if a.role == "follower"):
+        side = getattr(f, "side", None)
+        if side:
+            lead = next(
+                (a for a in arms if a.role == "leader" and getattr(a, "side", None) == side), None
+            )
+        else:
             lead = by_name.get(f.name.replace("follower", "leader"))
-            if lead is not None and lead.role == "leader":
-                pairs.append((lead, f))
+        if lead is not None and lead.role == "leader":
+            pairs.append((lead, f))
     return pairs
+
+
+def calibration_file(a: ArmBus) -> str:
+    """The arm's file under a LeRobot calibration root (robot.py:49-53, teleoperator.py:47-53)."""
+    kind, folder = rigspec.FOLDER[a.role]
+    return f"{kind}/{folder}/{a.calibration_id}.json"
 
 
 def _identity_problem(a: dict[str, Any]) -> tuple[str, str]:
     """(message, fix) for an arm whose registers do not match its own calibration file."""
-    name, match = a["name"], a["match"]
+    name, match = label(a["name"]), a["match"]
     if match is None:
         return (f"{name}: no calibration files to compare with",
                 "Calibrate the arm, or point Studio at the calibration directory.")  # fmt: skip
     if a["exact"]:
-        return (f"{name} has {match}'s calibration: are their cables swapped?",
-                f"Swap the USB cables of {name} and {match}, then read again.")  # fmt: skip
+        return (f"{name} holds the calibration in {match}.json: are the cables swapped?",
+                f"Swap the USB cables of {name} and the arm {match}.json belongs to, then read "
+                "again.")  # fmt: skip
     return (f"{name} does not match its calibration file exactly",
-            f"Nearest is {match}, {a['max_deg']:.1f} deg off on {a['worst_joint']}. Calibrate "
-            "this arm, or connect the arm that file belongs to.")  # fmt: skip
+            f"Nearest is {match}.json, {a['max_deg']:.1f} deg off on {label(a['worst_joint'])}. "
+            "Calibrate this arm, or connect the arm that file belongs to.")  # fmt: skip
 
 
 class RigWorker:
@@ -197,7 +212,9 @@ class RigWorker:
     def describe(self) -> dict[str, Any]:
         """What this rig is, for the UI: sent once at start and replayed to every new window."""
         return {"type": "rig", "mock": self.mock,
-                "arms": [{"name": a.name, "role": a.role} for a in self.arms],
+                "arms": [{"name": a.name, "role": a.role, "side": getattr(a, "side", None),
+                          "id": a.calibration_id, "file": calibration_file(a)} for a in self.arms],
+                "bimanual": any(getattr(a, "side", None) for a in self.arms),
                 "policies": [p.public() for p in self.policies.values()],
                 "cal_dir": str(self.cal_dir) if self.cal_dir else None}  # fmt: skip
 
@@ -302,14 +319,16 @@ class RigWorker:
             return
         holding = [n for n, on in self.torque.items() if on]
         if holding:
-            self.error(f"Turn torque off before calibrating: {', '.join(holding)} holds torque.",
+            self.error(f"Turn torque off before calibrating: {labels(holding)} "
+                       f"{'holds' if len(holding) == 1 else 'hold'} torque.",
                        "Support the arm, then use Torque off.")  # fmt: skip
             return
         mine = next((x for x in self.identity if x["name"] == a.name), None)
         if mine and mine["exact"] and mine["match"] != a.calibration_id:
-            self.error(f"{a.name} has {mine['match']}'s calibration: are their cables swapped?",
-                       f"Fix the cables first. Calibrating now would write {a.name}'s calibration "
-                       f"into {mine['match']}'s servos and hide the swap.")  # fmt: skip
+            self.error(f"{label(a.name)} holds the calibration in {mine['match']}.json: are the "
+                       "cables swapped?",
+                       f"Fix the cables first. Calibrating now would write {label(a.name)}'s "
+                       "calibration into the other arm's servos and hide the swap.")  # fmt: skip
             return
         self.session.calibration_started()  # raises unless IDENTIFIED or READY
         a.set_torque(False)  # LeRobot disables torque first (so_follower.py:127)
@@ -358,7 +377,7 @@ class RigWorker:
         self.calibrations[c.arm.calibration_id] = c.new
         path = None
         if self.cal_dir is not None:
-            path = self.cal_dir / f"{c.arm.calibration_id}.json"
+            path = self.cal_dir / calibration_file(c.arm)
             try:
                 save_calibration(c.new, path)
             except OSError as e:  # not a bus error: the registers are written
@@ -468,6 +487,7 @@ class RigWorker:
                 "port": getattr(a, "port", f"mock://{a.name}"),
                 "serial": getattr(a, "serial", f"MOCK-{a.name}"),
                 "expected": a.calibration_id,
+                "file": calibration_file(a),
                 "match": best.name if best else None,
                 "max_deg": round(best.distance.max_deg, 2) if best else None,
                 "worst_joint": best.distance.worst_joint if best else None,
@@ -508,7 +528,7 @@ class RigWorker:
                 f.write_goals(f.read_positions())
             except BUS_ERRORS as e:
                 self.dead.add(f.name)
-                lost = lost or f"{f.name} is not answering: {e}"
+                lost = lost or f"{label(f.name)} is not answering: {e}"
         if lost and self.session.state is not State.FAULT:
             self.session.faulted(lost)
 
@@ -577,7 +597,7 @@ class RigWorker:
         for name, joints in self.health.items():
             for j, h in joints.items():
                 if h.faults:
-                    self._fault(f"{name} {j}: {', '.join(h.faults)}")
+                    self._fault(f"{label(name)} {label(j)}: {', '.join(h.faults)}")
                     return
 
     def _publish(self, pos: dict[str, dict[str, float]]) -> None:

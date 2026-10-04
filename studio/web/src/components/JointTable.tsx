@@ -1,13 +1,5 @@
 import { JOINTS, useStudio } from "../lib/studio";
-
-const LABEL: Record<string, string> = {
-  shoulder_pan: "Shoulder pan",
-  shoulder_lift: "Shoulder lift",
-  elbow_flex: "Elbow flex",
-  wrist_flex: "Wrist flex",
-  wrist_roll: "Wrist roll",
-  gripper: "Gripper",
-};
+import { label } from "../lib/labels";
 
 // Live joint readouts. Followers show position, load, temperature and fault bits; leaders show
 // position only. Numbers use tabular figures and fixed decimals so columns never jitter.
@@ -36,7 +28,7 @@ export function JointTable() {
               <th scope="col" className="jt-joint">Joint</th>
               {arms.map(([name, a]) => (
                 <th key={name} scope="colgroup" colSpan={a.role === "follower" ? 4 : 1} className="jt-arm">
-                  {name}
+                  {label(name)}
                 </th>
               ))}
             </tr>
@@ -55,7 +47,7 @@ export function JointTable() {
           <tbody>
             {JOINTS.map((j) => (
               <tr key={j}>
-                <th scope="row" className="jt-joint">{LABEL[j]}</th>
+                <th scope="row" className="jt-joint">{label(j)}</th>
                 {arms.map(([name, a]) => {
                   const p = a.pos[j];
                   const h = a.health[j];

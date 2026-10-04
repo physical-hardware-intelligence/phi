@@ -519,7 +519,7 @@ def test_checks_run_from_any_window_and_reach_the_assistant(tmp_path: Path, monk
             await b.send_str(json.dumps({"cmd": "checks_run"}))
             first = await until(b, lambda d: d["type"] == "checks")
             before = {r["id"]: r for r in first["results"]}
-            assert len(before) == 18 and before["arms_answer"]["status"] == "skip"
+            assert len(before) == 21 and before["arms_answer"]["status"] == "skip"
             await a.send_str(json.dumps({"cmd": "connect"}))
             await until(b, lambda d: d["type"] == "telemetry" and d["arms"], beat=False)
             await b.send_str(json.dumps({"cmd": "checks_run"}))

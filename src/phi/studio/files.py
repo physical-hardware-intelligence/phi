@@ -216,9 +216,46 @@ class Files:
                         "kind": p.parent.name, "mtime": p.stat().st_mtime})  # fmt: skip
         return out
 
+    def lerobot(self) -> dict[str, Any] | None:
+        """robot-config.yaml as LeRobot reads it: each arm's id, port and calibration file, the
+        dataset feature names, what LeRobot would refuse, and the CLI commands for this rig."""
+        import yaml
+
+        from phi.studio import rigspec
+
+        for key in root_order("robot-config.yaml"):
+            r = self.roots.get(key)
+            if r is None or not (r.path / "robot-config.yaml").is_file():
+                continue
+            ref = {"root": key, "path": "robot-config.yaml"}
+            try:
+                spec = rigspec.parse((r.path / "robot-config.yaml").read_text())
+            except (yaml.YAMLError, OSError) as e:
+                return {"file": ref, "error": str(e).splitlines()[0]}
+            cal = self.roots.get("calibration")
+            arms = []
+            for a in spec.arms:
+                path = a.calibration_path(cal.path) if cal else None
+                rel = (
+                    path.relative_to(cal.path).as_posix()
+                    if cal and path and cal.path in path.parents
+                    else None
+                )
+                arms.append({"key": a.key, "role": a.role, "side": a.side, "type": a.type,
+                             "id": a.lerobot_id, "port": a.port, "line": a.port_line,
+                             "calibration": rel, "calibrated": bool(path and path.is_file()),
+                             "use_degrees": a.use_degrees,
+                             "max_relative_target": a.max_relative_target})  # fmt: skip
+            return {"file": ref, "bimanual": spec.bimanual, "arms": arms,
+                    "cameras": [{"key": c.key, "side": c.side, "feature": c.feature,
+                                 "index": c.fields.get("index_or_path")} for c in spec.cameras],
+                    "features": spec.action_features(), "problems": list(spec.problems),
+                    "commands": spec.commands()}  # fmt: skip
+        return None
+
     def index(self) -> dict[str, Any]:
         return {"roots": [r.public() for r in self.roots.values()], "notes": self.notes(),
-                "calibrations": self.calibrations()}  # fmt: skip
+                "calibrations": self.calibrations(), "lerobot": self.lerobot()}  # fmt: skip
 
 
 def list_ports(identity: list[dict[str, Any]]) -> dict[str, Any]:

@@ -16,6 +16,19 @@ from phi.studio.identity import Calibration
 
 JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 
+
+def label(key: str) -> str:
+    """How a key reads in a message: left_follower becomes Left Follower (the web app's
+    lib/labels.ts uses the same rule). File names, ports and LeRobot ids stay literal."""
+    return " ".join(w[:1].upper() + w[1:] for w in key.replace("_", " ").split())
+
+
+def labels(keys: list[str]) -> str:
+    """Left Follower, or Left Follower and Right Follower, or A, B and C."""
+    out = [label(k) for k in keys]
+    return " and ".join(out) if len(out) <= 2 else f"{', '.join(out[:-1])} and {out[-1]}"
+
+
 # STS3215 Status register (65) bits. Same layout as Unloading_Condition (19) and
 # LED_Alarm_Condition (20) in
 # Waveshare's ST3215 map; scservo_sdk names five of them (protocol_packet_handler.py:18-22, 51-67).

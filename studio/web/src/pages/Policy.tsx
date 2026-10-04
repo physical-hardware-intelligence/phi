@@ -4,9 +4,9 @@ import { Cameras } from "../components/Cameras";
 import { MockPanel } from "../components/MockPanel";
 import { Notices } from "../components/Notices";
 import { JOINTS, useStudio, type PolicyInfo } from "../lib/studio";
+import { label } from "../lib/labels";
 
 const LIMIT = { min: 1, max: 600 }; // seconds; the worker refuses anything else (worker.py POLICY_LIMIT_S)
-const label = (j: string) => j.replace("_", " ").replace(/^\w/, (c) => c.toUpperCase());
 
 // What the operator last chose, kept while they move between pages.
 const memory = { policy: "", task: "Pick up the red cube and place it in the box", limit: 30 };
@@ -162,7 +162,7 @@ export function ActionVsState() {
             <thead>
               <tr>
                 <th />
-                {followers.map((f) => <th key={f} colSpan={3} className="jt-arm">{f}</th>)}
+                {followers.map((f) => <th key={f} colSpan={3} className="jt-arm">{label(f)}</th>)}
               </tr>
               <tr className="jt-sub">
                 <th className="jt-joint">Joint</th>

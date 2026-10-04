@@ -5,6 +5,9 @@ body {
   color: var(--text-primary);
   font: 400 var(--text-base)/1.3125rem var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  /* WHY global: almost every number here is live (Hz, °C, joint angles, counts). Proportional figures make
+     a changing value shift sideways on every frame; tabular ones keep each digit in its own column. */
+  font-variant-numeric: tabular-nums;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
@@ -21,6 +24,10 @@ a:hover { text-decoration: underline; }
 .t-stat { font-size: var(--text-3xl); line-height: 2rem; font-weight: 600; letter-spacing: -0.02em; }
 .mono { font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.125rem; }
 .num { font-variant-numeric: tabular-nums; }
+/* A config identifier (arm id, port, joint, camera key, file name), spelled exactly as robot-config.yaml and
+   LeRobot spell it. Mono marks it as a string to match, not prose. 0.92em because SF Mono's x-height is taller
+   than SF Pro's at the same size. */
+.ident { font-family: var(--font-mono); font-size: 0.92em; font-weight: inherit; letter-spacing: -0.01em; }
 .muted { color: var(--text-secondary); }
 .faint { color: var(--text-tertiary); }
 .strong { font-weight: 600; }
@@ -65,6 +72,11 @@ a:hover { text-decoration: underline; }
   border-radius: var(--radius-lg); border: 1px solid var(--border-control);
   background: var(--bg-panel); font-size: var(--text-base);
   transition: border-color var(--dur-fast) var(--ease-standard);
+}
+/* WHY appearance none: Chrome's native select draws its own large chevron and ignores the control height. */
+.select {
+  appearance: none; padding-right: 30px; text-overflow: ellipsis;
+  background: var(--bg-panel) var(--chevron) no-repeat right 10px center / 12px 12px;
 }
 .textarea { height: auto; min-height: 64px; padding: 6px 10px; resize: vertical; line-height: 1.3125rem; }
 .input:hover, .select:hover, .textarea:hover { border-color: var(--text-tertiary); }

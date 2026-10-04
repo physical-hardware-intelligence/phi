@@ -1,6 +1,7 @@
 import { CircleAlert, CircleCheck, CircleX, Check, Hand, Power, RotateCcw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Notices } from "../components/Notices";
+import { label, labels } from "../lib/labels";
 import {
   JOINTS, go, studio, useStudio, TICKS_PER_DEG,
   type ArmIdentity, type CalStep, type CalView, type SessionState,
@@ -10,11 +11,9 @@ const CAN_START = new Set<SessionState>(["IDENTIFIED", "READY"]);
 const STEPS: { key: CalStep | "check"; title: string; detail: string }[] = [
   { key: "check", title: "Check", detail: "Torque off on every arm, cable not swapped" },
   { key: "middle", title: "Set the middle", detail: "Every joint at mid-range; homing makes it read 2047" },
-  { key: "ranges", title: "Record ranges", detail: "Sweep each joint end to end, except wrist_roll" },
+  { key: "ranges", title: "Record ranges", detail: "Sweep each joint end to end, except Wrist Roll" },
   { key: "review", title: "Review and save", detail: "Old against new, then write registers and file" },
 ];
-
-const label = (j: string) => j.replace("_", " ").replace(/^\w/, (c) => c.toUpperCase());
 
 // LeRobot's calibration, one step per screen (so_follower.py calibrate). The worker owns every step;
 // this page shows where it is and sends the next command.
@@ -51,7 +50,7 @@ function blockedReason(a: ArmIdentity, st: SessionState | undefined, control: bo
   if (!control) return "Another window has control";
   if (st === "CALIBRATING") return "Another calibration is running";
   if (st === "FAULT") return "Clear the fault first";
-  if (holding.length) return `Turn torque off first: ${holding.join(", ")} holds`;
+  if (holding.length) return `Turn torque off first: ${labels(holding)} ${holding.length === 1 ? "holds" : "hold"} torque`;
   if (!st || !CAN_START.has(st)) return "Turn torque off first";
   if (a.exact && !a.ok) return "Fix the swapped cables first";
   return null;
@@ -67,10 +66,7 @@ function ArmPicker({ active }: { active: string | null }) {
   return (
     <section className="panel cal-arms">
       <div className="panel-head">
-        <div>
-          <h2 className="panel-title">Arms</h2>
-          <p className="panel-sub">Choose the arm to calibrate</p>
-        </div>
+        <h2 className="panel-title">Arms</h2>
       </div>
       {st === "DISCONNECTED" || !st ? (
         <div className="empty empty-action">
@@ -90,7 +86,7 @@ function ArmPicker({ active }: { active: string | null }) {
               <li key={a.name} className={`pick-row ${isActive ? "is-active" : ""}`}>
                 <div className="pick-text">
                   <div className="pick-name">
-                    <span className="ellipsis">{a.name}</span>
+                    <span className="ellipsis">{label(a.name)}</span>
                     <span className="pick-role">{a.role === "leader" ? "Leader" : "Follower"}</span>
                   </div>
                   <CalBadge a={a} />
@@ -108,7 +104,10 @@ function ArmPicker({ active }: { active: string | null }) {
           })}
         </ul>
       )}
-      {arms.length > 0 && st && !CAN_START.has(st) && st !== "CALIBRATING" && (
+      {arms.length > 0 && !control && st !== "CALIBRATING" && (
+        <div className="panel-foot"><span className="text-warn">View only: another window has control.</span></div>
+      )}
+      {arms.length > 0 && control && st && !CAN_START.has(st) && st !== "CALIBRATING" && (
         <div className="panel-foot panel-foot-action">
           <span>{st === "FAULT" ? "Clear the fault, then calibrate." : "Calibration needs torque off on every arm."}</span>
           {st !== "FAULT" && <button className="btn btn-sm" onClick={() => go("teleop")}>Go to Teleoperate</button>}

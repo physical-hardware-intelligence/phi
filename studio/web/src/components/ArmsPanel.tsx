@@ -1,5 +1,6 @@
 import { CircleCheck, TriangleAlert, Unplug } from "lucide-react";
 import { useStudio } from "../lib/studio";
+import { label } from "../lib/labels";
 
 // One row per arm: what it is (name, role), where it is (port, adapter serial), and whether its
 // servo registers match a calibration file exactly. Matches come from the registers, not the port.
@@ -28,7 +29,7 @@ export function ArmsPanel() {
             return (
               <li key={a.name} className="arm-row">
                 <div className="arm-main">
-                  <span className="arm-name">{a.name}</span>
+                  <span className="arm-name">{label(a.name)}</span>
                   <span className={`badge ${a.role === "leader" ? "tone-neutral" : "tone-info"}`}>
                     {a.role === "leader" ? "Leader" : "Follower"}
                   </span>
@@ -50,7 +51,7 @@ export function ArmsPanel() {
                   ) : (
                     <span className="check tone-warn">
                       <TriangleAlert aria-hidden />
-                      Nearest {a.match}.json, {a.max_deg?.toFixed(1)}° off on {a.worst_joint}
+                      Nearest {a.match}.json, {a.max_deg?.toFixed(1)}° off on {label(a.worst_joint ?? "")}
                     </span>
                   )}
                 </div>

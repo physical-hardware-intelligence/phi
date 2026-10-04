@@ -151,13 +151,13 @@ def test_calibration_problems_in_lerobots_terms(edit: dict, problem: str) -> Non
     cal = good_cal()
     cal["elbow_flex"] = {**cal["elbow_flex"], **edit}
     found = calibration_problems(cal)
-    assert len(found) == 1 and found[0].startswith("elbow_flex") and problem in found[0]
+    assert len(found) == 1 and found[0].startswith("Elbow Flex") and problem in found[0]
 
 
 def test_calibration_problems_missing_joint_and_not_a_calibration() -> None:
     cal = good_cal()
     del cal["gripper"]
-    assert calibration_problems(cal) == ["missing gripper"]
+    assert calibration_problems(cal) == ["missing Gripper"]
     assert calibration_problems({"x": 1})[0].startswith("not a LeRobot calibration")
     assert calibration_problems(good_cal()) == []
 
@@ -171,7 +171,7 @@ def test_calibration_files_pass_missing_and_bad(tmp_path: Path) -> None:
     r = C.check_calibrations(
         mac(tmp_path / "c", cals={"phi_follower": good_cal(), "phi_leader": bad})
     )
-    assert r["status"] == "fail" and "gripper did not move" in r["detail"]
+    assert r["status"] == "fail" and "Gripper did not move" in r["detail"]
     assert r["file"] == {
         "root": "calibration",
         "path": "teleoperators/so_leader/phi_leader.json",
@@ -292,14 +292,14 @@ def test_rig_problems_are_found() -> None:
     inp = connected(follower_1={"online": False, "health": hot}, leader_1={"torque": True})
     inp.telemetry["loop"] = {"hz": 22.0, "p99_ms": 40.0}
     res = by_id(inp)
-    assert res["arms_answer"]["status"] == "fail" and "follower_1" in res["arms_answer"]["detail"]
+    assert res["arms_answer"]["status"] == "fail" and "Follower 1" in res["arms_answer"]["detail"]
     assert (
         res["faults"]["status"] == "fail"
-        and "follower_1 gripper: overload" in res["faults"]["detail"]
+        and "Follower 1 Gripper: overload" in res["faults"]["detail"]
     )
     assert res["temperature"]["status"] == "warn" and "61" in res["temperature"]["detail"]
     assert res["load"]["status"] == "warn" and "95" in res["load"]["detail"]
-    assert res["leader_torque"]["status"] == "warn" and "leader_1" in res["leader_torque"]["detail"]
+    assert res["leader_torque"]["status"] == "warn" and "Leader 1" in res["leader_torque"]["detail"]
     assert res["loop"]["status"] == "warn"
 
 
@@ -344,7 +344,7 @@ def test_cameras_stale_or_offline_fail() -> None:
     ok = {"online": True, "fps": 30.0, "age_s": 0.1}
     assert C.check_cameras(Inputs(cameras={"front": ok}))["status"] == "pass"
     r = C.check_cameras(Inputs(cameras={"front": ok, "top": {**ok, "age_s": 5.0}}))
-    assert r["status"] == "fail" and r["detail"].startswith("top:")
+    assert r["status"] == "fail" and r["detail"].startswith("Top:")
     r = C.check_cameras(
         Inputs(
             cameras={
@@ -398,8 +398,8 @@ def test_a_check_that_raises_is_reported_not_hidden(monkeypatch: pytest.MonkeyPa
 
 def test_every_check_runs_on_empty_inputs() -> None:
     res = run_checks(Inputs())
-    assert len(res) == len(C.CHECKS) == 18
-    assert len({r["id"] for r in res}) == 18
+    assert len(res) == len(C.CHECKS) == 21
+    assert len({r["id"] for r in res}) == 21
     assert not [r for r in res if "The check itself failed" in r["detail"]]
 
 
@@ -412,14 +412,73 @@ def test_mock_arms_need_no_file_but_a_written_mock_file_is_checked(tmp_path: Pat
     assert C.check_calibrations(inp)["status"] == "pass"  # mock: in memory, no file needed
     bad = good_cal()
     bad["wrist_roll"]["homing_offset"] = 3000
-    (inp.rig_cal_dir / "left_follower.json").write_text(json.dumps(bad))
+    f = inp.rig_cal_dir / "robots" / "so_follower" / "left_follower.json"
+    f.parent.mkdir(parents=True)
+    f.write_text(json.dumps(bad))
     r = C.check_calibrations(inp)
-    assert r["status"] == "fail" and "left_follower: wrist_roll homing offset" in r["detail"]
+    assert r["status"] == "fail" and "left_follower: Wrist Roll homing offset" in r["detail"]
     assert r["file"] == {
         "root": "studio",
-        "path": "mock-calibration/left_follower.json",
+        "path": "mock-calibration/robots/so_follower/left_follower.json",
         "line": None,
     }
     inp.rig_kind = "hardware"
     r = C.check_calibrations(inp)
     assert r["status"] == "fail" and "No calibration file for left_leader" in r["detail"]
+
+
+# -- the config as LeRobot reads it --------------------------------------------------
+BI = """\
+robot:
+  type: bi_so_follower
+  id: bi_f
+  left_arm_config: {port: /dev/a, use_degrees: false, max_relative_target: 10}
+  right_arm_config: {port: /dev/b, use_degrees: false}
+teleop:
+  type: bi_so_leader
+  id: bi_l
+  left_arm_config: {port: /dev/c, use_degrees: false}
+  right_arm_config: {port: /dev/d}
+"""
+
+
+def test_units_must_match_and_a_bimanual_leader_is_always_degrees(tmp_path: Path) -> None:
+    assert C.check_units(mac(tmp_path / "a"))["status"] == "pass"
+    single = CONFIG.replace("  id: phi_leader\n", "  id: phi_leader\n  use_degrees: false\n")
+    r = C.check_units(mac(tmp_path / "b", config=single))
+    assert (
+        r["status"] == "fail" and "Follower reads degrees, Leader reads -100 to 100" in r["detail"]
+    )
+    # use_degrees: false on the bimanual leader is ignored by LeRobot 0.6.0 (bi_so_leader.py:42-52)
+    r = C.check_units(mac(tmp_path / "c", config=BI))
+    assert r["status"] == "fail" and "Left Follower reads -100 to 100" in r["detail"]
+    assert "always reads degrees" in r["detail"]
+
+
+def test_step_limit_warns_per_follower(tmp_path: Path) -> None:
+    r = C.check_step_limit(mac(tmp_path / "a", config=BI))
+    assert r["status"] == "warn" and "Right Follower" in r["detail"] and "Left" not in r["detail"]
+    capped = CONFIG.replace(
+        "  id: phi_follower\n", "  id: phi_follower\n  max_relative_target: 8\n"
+    )
+    assert C.check_step_limit(mac(tmp_path / "b", config=capped))["status"] == "pass"
+
+
+def test_camera_indices_must_be_filled_in(tmp_path: Path) -> None:
+    cams = (
+        "cameras:\n  front: {type: opencv, index_or_path: TBD}\n"
+        "  top: {type: opencv, index_or_path: 0}\n"
+    )
+    r = C.check_camera_config(mac(tmp_path / "a", config=CONFIG + cams))
+    assert r["status"] == "warn" and "Front" in r["detail"] and "Top" not in r["detail"]
+    ok = cams.replace("TBD", "1")
+    r = C.check_camera_config(mac(tmp_path / "b", config=CONFIG + ok))
+    assert r["status"] == "pass" and "observation.images.front" in r["detail"]
+    assert C.check_camera_config(mac(tmp_path / "c"))["status"] == "skip"
+
+
+def test_bimanual_config_names_lerobots_calibration_files(tmp_path: Path) -> None:
+    r = C.check_calibrations(mac(tmp_path, config=BI))
+    assert r["status"] == "fail"
+    for f in ("bi_f_left (robot)", "bi_f_right (robot)", "bi_l_left (teleoperator)"):
+        assert f in r["detail"]

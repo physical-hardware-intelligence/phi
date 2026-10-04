@@ -78,7 +78,9 @@ export interface Telemetry {
 export interface PolicyInfo { id: string; name: string; available: boolean; note: string }
 export interface RigInfo {
   mock: boolean;
-  arms: { name: string; role: "leader" | "follower" }[];
+  bimanual: boolean;
+  // id: the LeRobot id; file: its calibration file under a LeRobot calibration root
+  arms: { name: string; role: "leader" | "follower"; side: "left" | "right" | null; id: string; file: string }[];
   policies: PolicyInfo[];
   cal_dir: string | null;
 }
@@ -130,7 +132,19 @@ export interface Assist {
 }
 export interface FileRoot { key: string; label: string; path: string }
 export interface FileRef { root: string; path: string; label?: string; id?: string; kind?: string; mtime: number }
-export interface FilesIndex { roots: FileRoot[]; notes: FileRef[]; calibrations: FileRef[] }
+export interface FilesIndex { roots: FileRoot[]; notes: FileRef[]; calibrations: FileRef[]; lerobot: LeRobotView | null }
+/** robot-config.yaml as LeRobot reads it (src/phi/studio/rigspec.py). */
+export interface LeRobotArm {
+  key: string; role: "leader" | "follower"; side: "left" | "right" | null; type: string; id: string | null;
+  port: string | null; line: number | null; calibration: string | null; calibrated: boolean;
+  use_degrees: boolean; max_relative_target: number | Record<string, number> | null;
+}
+export interface LeRobotCommand { id: string; title: string; why: string; cmd: string }
+export interface LeRobotView {
+  file: { root: string; path: string }; error?: string; bimanual: boolean; arms: LeRobotArm[];
+  cameras: { key: string; side: string | null; feature: string; index: unknown }[];
+  features: string[]; problems: string[]; commands: LeRobotCommand[];
+}
 export interface OpenFile { root: string; path: string; abs: string; text: string; size: number; mtime: number; truncated: boolean; line: number | null }
 export interface SearchHit { root: string; path: string; line: number; text: string }
 export interface SearchResult { query: string; hits: SearchHit[]; scanned: number; stopped: boolean }
@@ -438,7 +452,7 @@ class Studio {
         break;
       }
       case "telemetry": this.set({ telemetry: m }); break;
-      case "rig": this.set({ rig: { mock: m.mock, arms: m.arms, policies: m.policies, cal_dir: m.cal_dir } }); break;
+      case "rig": this.set({ rig: { mock: m.mock, bimanual: !!m.bimanual, arms: m.arms, policies: m.policies, cal_dir: m.cal_dir } }); break;
       case "eval": this.set({ evals: { current: m.current, past: m.past, dir: m.dir } }); break;
       case "calibrated":
         this.set({
@@ -452,7 +466,7 @@ class Studio {
       case "assist": this.onAssist(m); break;
       case "assist_status": this.setAssist({ status: m }); break;
       case "assist_context": this.setAssist({ context: m.text }); break;
-      case "files": this.setFiles({ index: { roots: m.roots, notes: m.notes, calibrations: m.calibrations } }); break;
+      case "files": this.setFiles({ index: { roots: m.roots, notes: m.notes, calibrations: m.calibrations, lerobot: m.lerobot ?? null } }); break;
       case "file": this.setFiles({ open: { root: m.root, path: m.path, abs: m.abs, text: m.text, size: m.size, mtime: m.mtime, truncated: m.truncated, line: m.line }, loading: null, error: null }); break;
       case "file_error": // the server says which request failed; a search and an open can be in flight together
         this.setFiles({ ...(m.op === "search" ? { searching: null } : { loading: null }), error: { message: m.message, path: m.path } });
@@ -514,8 +528,8 @@ export function useStudio<T>(select: (s: Snapshot) => T): T {
 }
 
 // -- routing and theme -------------------------------------------------------------------------
-export type Route = "overview" | "checks" | "calibrate" | "teleop" | "policy" | "evaluate" | "files";
-export const ROUTES: Route[] = ["overview", "checks", "calibrate", "teleop", "policy", "evaluate", "files"];
+export type Route = "overview" | "checks" | "calibrate" | "teleop" | "policy" | "evaluate" | "setup" | "files";
+export const ROUTES: Route[] = ["overview", "checks", "calibrate", "teleop", "policy", "evaluate", "setup", "files"];
 
 function readRoute(): Route {
   const r = location.hash.replace(/^#\/?/, "") as Route;

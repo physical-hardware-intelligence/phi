@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from phi.studio import rigspec
 from phi.studio.identity import TICKS_PER_REV, Calibration, JointCal
 from phi.studio.rig import JOINTS, JointHealth
 
@@ -82,9 +83,12 @@ class MockArm:
     scripted: bool = True  # leader follows the scripted hand
     hand: bool = False  # a limp follower follows a wider scripted hand (calibration sweeps)
     calibration_id: str = ""  # the calibration file this arm is registered with; default its name
+    side: str | None = None  # left | right on a bimanual rig
+    port: str = ""
 
     def __post_init__(self) -> None:
         self.calibration_id = self.calibration_id or self.name
+        self.port = self.port or f"mock://{self.name}"
         self._own_cal = _calibration(self.seed)
         self._cal = self._own_cal  # what the port reaches; swap_cables changes it
         rng = np.random.default_rng(1000 + self.seed)
@@ -248,10 +252,11 @@ class MockCamera:
 class MockRig:
     arms: list[MockArm]
     cameras: list[MockCamera]
+    spec: rigspec.RigSpec | None = None  # the LeRobot config this mock stands in for
 
     def calibration_files(self) -> dict[str, Calibration]:
-        """What a calibration directory would hold for these arms: each arm's own file."""
-        return {a.name: a._own_cal for a in self.arms}
+        """What a calibration directory would hold for these arms: each arm's own file, by id."""
+        return {a.calibration_id: a._own_cal for a in self.arms}
 
     def swap_cables(self, name: str) -> None:
         """Swap the USB cables of `name` and its partner (leader <-> follower): each port now
@@ -267,13 +272,27 @@ def mock_rig(
     cameras: tuple[str, ...] = ("front", "wrist", "top"),
     clock: object = time.monotonic,
 ) -> MockRig:
-    """1 pair (leader, follower) or 2 pairs (left_*, right_*), the shapes LeRobot's so_* and bi_so_*
-    classes use."""
-    sides = [""] if pairs == 1 else ["left_", "right_"]
+    """1 pair (so101_follower + so101_leader) or 2 (bi_so_follower + bi_so_leader). The arms come
+    from a LeRobot-shaped config through rigspec, so their ids and calibration paths follow the same
+    rules a real rig's do: mock_follower_left.json under robots/so_follower/, and so on."""
+    spec = rigspec.parse(MOCK_CONFIG[2 if pairs > 1 else 1])
+    order = {(s, r): 10 * k + i for k, s in enumerate((None, "left", "right"))
+             for i, r in enumerate(("leader", "follower"))}  # fmt: skip
     arms = [
-        MockArm(f"{s}{role}", role, clock=clock, seed=10 * k + r)
-        for k, s in enumerate(sides)
-        for r, role in enumerate(("leader", "follower"))
-    ]
+        MockArm(a.key, a.role, clock=clock, calibration_id=a.lerobot_id or a.key, side=a.side,
+                port=a.port or "", seed=order[(a.side, a.role)] - (10 if a.side else 0))
+        for a in sorted(spec.arms, key=lambda a: order[(a.side, a.role)])
+    ]  # fmt: skip
     cams = [MockCamera(c, clock=clock, hue=60 * i) for i, c in enumerate(cameras)]
-    return MockRig(arms, cams)
+    return MockRig(arms, cams, spec)
+
+
+# The robot-config.yaml a real rig of the same shape would have, in LeRobot's own keys.
+MOCK_CONFIG = {
+    1: "robot: {type: so101_follower, id: mock_follower, port: mock://follower}\n"
+    "teleop: {type: so101_leader, id: mock_leader, port: mock://leader}\n",
+    2: "robot: {type: bi_so_follower, id: mock_follower,\n"
+    "  left_arm_config: {port: mock://left_follower}, right_arm_config: {port: mock://right_follower}}\n"
+    "teleop: {type: bi_so_leader, id: mock_leader,\n"
+    "  left_arm_config: {port: mock://left_leader}, right_arm_config: {port: mock://right_leader}}\n",
+}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { JOINTS, studio, useStudio } from "../lib/studio";
+import { label } from "../lib/labels";
 
 const KINDS = [
   ["overload", "Overload a joint"],
@@ -32,7 +33,7 @@ export function MockPanel() {
         <label className="field">
           <span className="field-label">Arm</span>
           <select className="select" value={target} onChange={(e) => setArm(e.target.value)}>
-            {arms.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
+            {arms.map((a) => <option key={a.name} value={a.name}>{label(a.name)}</option>)}
           </select>
         </label>
         <label className="field">
@@ -45,7 +46,7 @@ export function MockPanel() {
           <label className="field">
             <span className="field-label">Joint</span>
             <select className="select" value={joint} onChange={(e) => setJoint(e.target.value)}>
-              {JOINTS.map((j) => <option key={j} value={j}>{j}</option>)}
+              {JOINTS.map((j) => <option key={j} value={j}>{label(j)}</option>)}
             </select>
           </label>
         )}

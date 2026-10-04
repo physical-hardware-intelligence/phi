@@ -24,6 +24,7 @@
   --text-primary: #1d1c1a;
   --text-secondary: #5b5852;
   --text-tertiary: #8a867f;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%238a867f' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
   --text-disabled: #b6b2aa;
   --text-on-video: #ecebe7;
 
@@ -98,6 +99,7 @@
   --text-primary: #ebe9e5;
   --text-secondary: #b2afa8;
   --text-tertiary: #87847d;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%2387847d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
   --text-disabled: #5d5b56;
 
   --accent: #86a8d2;

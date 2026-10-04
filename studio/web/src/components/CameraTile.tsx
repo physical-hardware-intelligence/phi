@@ -1,6 +1,7 @@
 import { CameraOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { studio, useStudio } from "../lib/studio";
+import { label } from "../lib/labels";
 
 // Draws the newest frame only: if a decode is still running when the next frame arrives,
 // the older one is dropped. Shows the measured preview rate and flags a stale feed.
@@ -49,7 +50,7 @@ export function CameraTile({ name }: { name: string }) {
   const offline = status && !status.online;
   return (
     <figure className={`cam ${stale || offline ? "is-stale" : ""}`}>
-      <canvas ref={canvas} width={640} height={480} aria-label={`${name} camera`} />
+      <canvas ref={canvas} width={640} height={480} aria-label={`${label(name)} camera`} />
       {(offline || !size) && (
         <div className="cam-empty">
           {offline ? <CameraOff aria-hidden /> : null}
@@ -57,7 +58,7 @@ export function CameraTile({ name }: { name: string }) {
         </div>
       )}
       <figcaption className="cam-bar">
-        <span className="cam-name">{name}</span>
+        <span className="cam-name">{label(name)}</span>
         <span className="num t-xs faint">
           {size ? `${size[0]}×${size[1]}` : ""}
         </span>

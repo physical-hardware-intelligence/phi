@@ -4,6 +4,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { studio, useStudio, type FileRef, type SearchHit, type SerialPort } from "../lib/studio";
 import { Notices } from "../components/Notices";
+import { label } from "../lib/labels";
 
 // The files that answer "which port, which arm, which calibration" on this Mac, plus search over every
 // folder Studio can show. Read-only: nothing on this page changes a file.
@@ -104,7 +105,7 @@ function PortRow({ p }: { p: SerialPort }) {
           <CopyIcon text={path} label="Copy port" />
         </div>
         <div className="port-meta">
-          {p.arm ? <span className="badge tone-ok">{p.arm}</span> : p.usb && <span className="badge tone-neutral">No arm read</span>}
+          {p.arm ? <span className="badge tone-ok">{label(p.arm)}</span> : p.usb && <span className="badge tone-neutral">No arm read</span>}
           {p.vid !== null && <span className="num">{hex(p.vid)}:{hex(p.pid)}</span>}
           {p.serial && <span className="num">SN {p.serial}</span>}
           {p.description && !p.arm && <span className="ellipsis">{p.description}</span>}

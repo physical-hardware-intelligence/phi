@@ -92,7 +92,7 @@ def test_calibration_saves_a_lerobot_file_that_matches_the_registers(tmp_path: P
     assert set(review["old"]) == set(JOINTS)
 
     w.handle({"cmd": "cal_save"})
-    saved = tmp_path / "follower.json"
+    saved = tmp_path / "robots" / "so_follower" / "mock_follower.json"  # LeRobot's layout
     raw = json.loads(saved.read_text())
     assert set(raw["gripper"]) == {"id", "drive_mode", "homing_offset", "range_min", "range_max"}
     assert all(v["drive_mode"] == 0 for v in raw.values())  # LeRobot writes 0 (so_follower.py:149)
@@ -155,7 +155,7 @@ def test_a_leader_that_comes_up_holding_torque_can_be_released_before_arming() -
     arm(w, "leader").torque = True  # left on by another program
     w.handle({"cmd": "connect"})
     w.handle({"cmd": "cal_start", "arm": "follower"})
-    assert "leader holds torque" in of(out, "error")[-1]["message"]
+    assert "Leader holds torque" in of(out, "error")[-1]["message"]
     w.handle({"cmd": "release"})
     assert arm(w, "leader").torque is False and w.torque["leader"] is False
     assert w.session.state.name == "IDENTIFIED"  # nothing to arm or disarm, so no state change

@@ -519,3 +519,41 @@ fieldset.form { border: 0; margin: 0; min-width: 0; }
 .check-fix { display: flex; gap: 6px; margin-top: 4px; font-size: var(--text-sm); line-height: 1.25rem; color: var(--text-primary); }
 .check-fix svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--text-tertiary); }
 .check-actions { display: flex; gap: var(--space-1); margin: -3px -6px -3px 0; }
+
+/* LeRobot setup: the rig as LeRobot reads it, and the commands for it */
+.setup-title { display: flex; align-items: center; gap: var(--space-2); }
+.setup-arms td { font-size: var(--text-base); }
+.setup-arms .ident { color: var(--text-primary); }
+.setup-arms .ellipsis { display: inline-block; max-width: 240px; vertical-align: bottom; }
+.setup-cal { display: inline-flex; align-items: center; gap: 6px; }
+.setup-cal svg { width: 15px; height: 15px; flex: none; }
+.setup-problems { list-style: none; margin: 0; padding: var(--space-3) var(--space-4) var(--space-4); border-top: 1px solid var(--border-subtle); display: grid; gap: var(--space-2); color: var(--warn-text); }
+.setup-problems li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: var(--space-2); align-items: start; }
+.setup-problems svg { width: 16px; height: 16px; margin-top: 3px; }
+.setup-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: var(--space-5); align-items: start; }
+@container content (max-width: 900px) { .setup-grid { grid-template-columns: minmax(0, 1fr); } }
+.cmd-list { list-style: none; margin: 0; padding: 0 0 var(--space-2); }
+.cmd-item { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: var(--space-3); padding: var(--space-4); border-top: 1px solid var(--border-subtle); }
+.cmd-n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: var(--text-xs); font-weight: 600; color: var(--text-secondary); border: 1px solid var(--border-strong); }
+.cmd-body { min-width: 0; display: grid; gap: 6px; }
+.cmd-title { font-weight: 600; line-height: 1.5rem; }
+.cmd-why { color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.25rem; }
+.cmd-block { position: relative; background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
+.cmd-block pre { margin: 0; padding: 10px 44px 10px 12px; overflow-x: auto; font: 400 var(--text-xs)/1.25rem var(--font-mono); color: var(--text-primary); }
+.cmd-copy { position: absolute; top: 4px; right: 4px; }
+.setup-keys { display: grid; gap: var(--space-2); }
+.setup-keys .field-label + .key-chips, .setup-keys .field-label + .setup-cams, .setup-keys .field-label + p { margin-bottom: var(--space-3); }
+.key-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.key-chip { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--bg-sunken); border: 1px solid var(--border-subtle); }
+/* WHY one grid on the list with display: contents rows: name, key and index line up in columns across
+   cameras, which separate per-row grids cannot do. */
+.setup-arms td { height: auto; padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.setup-arms .setup-type { display: block; margin-top: 2px; font-size: var(--text-xs); color: var(--text-tertiary); }
+/* WHY a cap on the port: it is the widest cell, and the full path is in the title and every command. */
+.setup-port { display: inline-block; max-width: 30ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.setup-note { margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
+.setup-cams { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: var(--space-3); row-gap: var(--space-2); align-items: baseline; }
+.setup-cams li { display: contents; }
+.setup-cams li > :nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-cams li > :nth-child(3) { font-size: var(--text-sm); white-space: nowrap; }

@@ -52,7 +52,9 @@ def test_connect_identifies_every_arm_by_its_registers() -> None:
         "right_leader",
         "right_follower",
     }
-    assert all(a["match"] == a["name"] and a["exact"] for a in ident)
+    assert all(a["match"] == a["expected"] and a["exact"] and a["ok"] for a in ident)
+    # LeRobot's bimanual ids: the section id plus the side (bi_so_follower.py:56, 66)
+    assert {a["name"]: a["expected"] for a in ident}["right_leader"] == "mock_leader_right"
     assert w.session.state.name == "IDENTIFIED"
 
 
@@ -130,7 +132,7 @@ def test_overload_faults_the_session_and_names_arm_joint_and_fault() -> None:
     run(w, clock, 1.0)
     s = of(out, "state")[-1]
     assert s["state"] == "FAULT"
-    assert "follower" in s["fault"] and "gripper" in s["fault"] and "overload" in s["fault"]
+    assert "Follower Gripper: overload" in s["fault"]
 
 
 def test_unplug_mid_teleop_faults_and_freezes_the_other_arms() -> None:
@@ -195,7 +197,9 @@ def test_swapped_cables_are_refused_at_confirm() -> None:
     w.handle({"cmd": "connect"})
     ident = {a["name"]: a for a in of(out, "identity")[-1]["arms"]}
     assert ident["leader"]["exact"] and not ident["leader"]["ok"]
-    assert ident["leader"]["match"] == "follower" and ident["leader"]["expected"] == "leader"
+    assert (
+        ident["leader"]["match"] == "mock_follower" and ident["leader"]["expected"] == "mock_leader"
+    )
     w.handle({"cmd": "confirm"})
     assert "swapped" in of(out, "error")[-1]["message"]
     assert w.session.state.name == "IDENTIFIED"
@@ -209,7 +213,7 @@ def test_stop_right_after_an_unplug_faults_instead_of_stopping() -> None:
     run(w, clock, 0.5)
     arm(w, "left_follower").inject("unplug")
     w.handle({"cmd": "stop"})  # before any tick sees the unplug
-    assert w.session.state.name == "FAULT" and "left_follower" in w.session.fault
+    assert w.session.state.name == "FAULT" and "Left Follower" in w.session.fault
     w.handle({"cmd": "resume"})
     run(w, clock, 0.5)  # must not raise
     assert w.session.state.name == "FAULT"

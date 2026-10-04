@@ -25,9 +25,10 @@ from typing import Any
 
 import yaml
 
+from phi.studio import rigspec
 from phi.studio.files import root_order
 from phi.studio.identity import TICKS_PER_REV, load_calibration
-from phi.studio.rig import JOINTS
+from phi.studio.rig import JOINTS, label
 
 # Thresholds. The UI colours the same values (JointTable.tsx, TopBar.tsx); keep them in step.
 TEMP_WARN_C = 60.0
@@ -124,21 +125,18 @@ def check_packages(_: Inputs) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class ConfigArm:
-    section: str  # robot, teleop, ...
-    id: str
+    section: str  # robot, teleop
+    id: str  # the id LeRobot gives this arm; on a bimanual rig the section id plus _left/_right
     port: str
     line: int  # 1-based line of the port value
-    type: str | None = None  # LeRobot type alias, e.g. so101_follower
+    type: str | None = None  # LeRobot type alias, e.g. so101_follower or bi_so_follower
+    role: str = "follower"
+    cal_dir: str | None = None  # the section's calibration_dir, which replaces LeRobot's folder
 
     @property
-    def kind(self) -> str | None:
+    def kind(self) -> str:
         """LeRobot's calibration subfolder for this arm: robots or teleoperators."""
-        t = (self.type or "").lower()
-        if t.endswith("_leader") or "teleop" in self.section:
-            return "teleoperators"
-        if t.endswith("_follower") or "robot" in self.section:
-            return "robots"
-        return None
+        return "teleoperators" if self.role == "leader" else "robots"
 
 
 def find_rig_config(inp: Inputs) -> tuple[str, Path] | None:
@@ -150,21 +148,15 @@ def find_rig_config(inp: Inputs) -> tuple[str, Path] | None:
 
 
 def parse_rig_config(text: str) -> list[ConfigArm]:
-    """Every top-level section with both an `id` and a `port`, with the port's line. Raises
-    yaml.YAMLError on a malformed file."""
-    node = yaml.compose(text)
-    arms: list[ConfigArm] = []
-    if not isinstance(node, yaml.MappingNode):
-        return arms
-    for key, value in node.value:
-        if not isinstance(value, yaml.MappingNode):
-            continue
-        fields = {k.value: v for k, v in value.value if isinstance(k, yaml.ScalarNode)}
-        rid, port, kind = fields.get("id"), fields.get("port"), fields.get("type")
-        if isinstance(rid, yaml.ScalarNode) and isinstance(port, yaml.ScalarNode) and port.value:
-            t = kind.value if isinstance(kind, yaml.ScalarNode) else None
-            arms.append(ConfigArm(key.value, rid.value, port.value, port.start_mark.line + 1, t))
-    return arms
+    """Every arm with an id and a port, read the way LeRobot reads the same keys (rigspec.py).
+    Raises yaml.YAMLError on a malformed file."""
+    return [
+        ConfigArm(
+            a.section, a.lerobot_id, a.port, a.port_line or 0, a.type, a.role, a.calibration_dir
+        )
+        for a in rigspec.parse(text).arms
+        if a.lerobot_id and a.port
+    ]
 
 
 def _config(inp: Inputs) -> tuple[dict[str, Any] | None, list[ConfigArm], str | None]:
@@ -216,8 +208,97 @@ def check_rig_config(inp: Inputs) -> dict[str, Any]:
             None,
             ref,
         )
+    found = find_rig_config(inp)
+    assert found is not None  # ref is set only when the file was found and parsed
+    spec = rigspec.parse(found[1].read_text())
+    no_port = [a for a in spec.arms if not a.port]
     names = ", ".join(f"{a.id} ({a.section})" for a in arms)
-    return result("rig_config", "This Mac", title, "pass", f"{len(arms)} arms: {names}", None, ref)
+    shape = "Bimanual, " if spec.bimanual else ""
+    if spec.problems or no_port:
+        probs = list(spec.problems) + [f"{a.key.replace('_', ' ')} has no port." for a in no_port]
+        detail = f"{shape}{len(arms)} arms: {names}. " + " ".join(probs)
+        fix = "Use the keys LeRobot's CLI takes. The Files page shows the commands built from it."
+        return result("rig_config", "This Mac", title, "warn", detail, fix, ref)
+    return result(
+        "rig_config", "This Mac", title, "pass", f"{shape}{len(arms)} arms: {names}", None, ref
+    )
+
+
+def _spec(inp: Inputs) -> tuple[dict[str, Any] | None, rigspec.RigSpec | None]:
+    """(file ref, the config as LeRobot reads it); (None, None) when it is missing or unreadable,
+    which check_rig_config reports."""
+    found = find_rig_config(inp)
+    if found is None:
+        return None, None
+    try:
+        spec = rigspec.parse(found[1].read_text())
+    except (yaml.YAMLError, OSError):
+        return None, None
+    return {"root": found[0], "path": "robot-config.yaml", "line": None}, spec
+
+
+def check_units(inp: Inputs) -> dict[str, Any]:
+    title = "Leader and follower use the same units"
+    ref, spec = _spec(inp)
+    if spec is None or not spec.pairs():
+        return result(
+            "units", "This Mac", title, "skip", "Needs a robot and a teleop in robot-config.yaml."
+        )
+    bad = spec.unit_mismatches()
+    unit = lambda a: "degrees" if a.use_degrees else "-100 to 100"  # noqa: E731
+    if bad:
+        lead, f = bad[0]
+        why = (" LeRobot 0.6.0's bi_so_leader always reads degrees (bi_so_leader.py:42-52)."
+               if lead.side else "")  # fmt: skip
+        return result("units", "This Mac", title, "fail",
+                      f"{label(f.key)} reads {unit(f)}, {label(lead.key)} reads {unit(lead)}. "
+                      f"Teleop passes the numbers across unchanged, so the follower would go to "
+                      f"the wrong angle.{why}",
+                      "Set use_degrees the same on robot and teleop. A dataset or policy made in "
+                      "one unit does not work in the other.", ref)  # fmt: skip
+    return result("units", "This Mac", title, "pass",
+                  f"Every arm reads joints in {unit(spec.arms[0])}; Gripper 0 to 100")  # fmt: skip
+
+
+def check_step_limit(inp: Inputs) -> dict[str, Any]:
+    title = "Follower step limit is set"
+    ref, spec = _spec(inp)
+    followers = [a for a in spec.arms if a.role == "follower"] if spec else []
+    if not followers:
+        return result(
+            "step_limit", "This Mac", title, "skip", "Needs a robot in robot-config.yaml."
+        )
+    off = [a for a in followers if a.max_relative_target in (None, "", 0)]
+    if off:
+        where = (
+            "left_arm_config.max_relative_target" if off[0].side else "robot.max_relative_target"
+        )
+        return result("step_limit", "This Mac", title, "warn",
+                      f"No max_relative_target on {', '.join(label(a.key) for a in off)}: LeRobot "
+                      "sends every goal as it is (so_follower.py:221-232).",
+                      f"Set {where} in robot-config.yaml and pass it to LeRobot, for example 10. "
+                      "Studio's own teleop clips each step either way.", ref)  # fmt: skip
+    caps = ", ".join(f"{label(a.key)} {a.max_relative_target}" for a in followers)
+    return result("step_limit", "This Mac", title, "pass", f"max_relative_target: {caps}")
+
+
+def check_camera_config(inp: Inputs) -> dict[str, Any]:
+    title = "Camera indices are filled in"
+    ref, spec = _spec(inp)
+    if spec is None or not spec.cameras:
+        return result(
+            "camera_config", "This Mac", title, "skip", "No cameras in robot-config.yaml."
+        )
+    todo = [c for c in spec.cameras if c.fields.get("index_or_path") in (None, "", "TBD")]
+    if todo:
+        return result("camera_config", "This Mac", title, "warn",
+                      f"No index for {', '.join(label(c.key) for c in todo)}, so LeRobot cannot "
+                      "open "
+                      "them. macOS can renumber cameras between sessions.",
+                      "Run lerobot-find-cameras opencv and fill in index_or_path for each camera.",
+                      ref)  # fmt: skip
+    keys = ", ".join(c.feature for c in spec.cameras)
+    return result("camera_config", "This Mac", title, "pass", f"Dataset keys: {keys}")
 
 
 def _live(ports: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -326,16 +407,16 @@ def calibration_problems(raw: Any) -> list[str]:
     out = []
     missing = [j for j in JOINTS if j not in cal]
     if missing:
-        out.append(f"missing {', '.join(missing)}")
+        out.append(f"missing {', '.join(map(label, missing))}")
     for j, c in cal.items():
         if c.range_min == c.range_max:  # LeRobot raises on this (motors_bus.py:846)
-            out.append(f"{j} did not move during calibration")
+            out.append(f"{label(j)} did not move during calibration")
         elif c.range_min > c.range_max:
-            out.append(f"{j} range is reversed")
+            out.append(f"{label(j)} range is reversed")
         if not (0 <= c.range_min <= MAX_TICK and 0 <= c.range_max <= MAX_TICK):
-            out.append(f"{j} range is outside 0 to {MAX_TICK}")
+            out.append(f"{label(j)} range is outside 0 to {MAX_TICK}")
         if abs(c.homing_offset) > MAX_HOMING:
-            out.append(f"{j} homing offset {c.homing_offset} does not fit the register")
+            out.append(f"{label(j)} homing offset {c.homing_offset} does not fit the register")
     return out
 
 
@@ -353,14 +434,15 @@ def _cal_targets(inp: Inputs, arms: list[ConfigArm]) -> dict[tuple[str, str | No
         # only when one is calibrated in Studio, so a missing mock file is normal. Files it did
         # write are still checked.
         if inp.rig_cal_dir is not None and inp.rig_cal_dir.is_dir():
-            for p in sorted(inp.rig_cal_dir.glob("*.json")):
+            for p in sorted(inp.rig_cal_dir.rglob("*.json")):  # LeRobot's layout, as a real rig
                 out[(p.stem, None)] = p
     else:
         for a in inp.identity:
             if a.get("expected"):
                 out.setdefault((a["expected"], ROLE_KIND.get(a.get("role", ""))), None)
     for c in arms:
-        out.setdefault((c.id, c.kind), None)
+        exact = Path(c.cal_dir).expanduser() / f"{c.id}.json" if c.cal_dir else None
+        out.setdefault((c.id, c.kind), exact)
     return out
 
 
@@ -531,7 +613,7 @@ def check_arms_answer(inp: Inputs) -> dict[str, Any]:
             "Rig",
             title,
             "fail",
-            f"Not answering: {', '.join(dead)}.",
+            f"Not answering: {', '.join(map(label, dead))}.",
             "Check that arm's USB cable and its power supply, then clear the fault.",
         )
     return result(
@@ -627,7 +709,11 @@ def check_faults(inp: Inputs) -> dict[str, Any]:
     title = "No servo fault bits"
     if why := _rig_skip(inp):
         return result("faults", "Rig", title, "skip", why)
-    hits = [f"{n} {j}: {', '.join(h['faults'])}" for n, j, h in _health(inp) if h.get("faults")]
+    hits = [
+        f"{label(n)} {label(j)}: {', '.join(h['faults'])}"
+        for n, j, h in _health(inp)
+        if h.get("faults")
+    ]
     if hits:
         return result(
             "faults",
@@ -648,7 +734,7 @@ def check_temperature(inp: Inputs) -> dict[str, Any]:
     if (why := _rig_skip(inp)) or not rows:
         return result("temperature", "Rig", title, "skip", why or SKIP_RIG)
     n, j, h = max(rows, key=lambda r: r[2]["temp"])
-    detail = f"Hottest: {n} {j} at {h['temp']:.0f} °C"
+    detail = f"Hottest: {label(n)} {label(j)} at {h['temp']:.0f} °C"
     if h["temp"] >= TEMP_WARN_C:
         return result(
             "temperature",
@@ -667,7 +753,7 @@ def check_load(inp: Inputs) -> dict[str, Any]:
     if (why := _rig_skip(inp)) or not rows:
         return result("load", "Rig", title, "skip", why or SKIP_RIG)
     n, j, h = max(rows, key=lambda r: abs(r[2]["load"]))
-    detail = f"Highest: {n} {j} at {abs(h['load']):.0f} % of rated"
+    detail = f"Highest: {label(n)} {label(j)} at {abs(h['load']):.0f} % of rated"
     if abs(h["load"]) > LOAD_WARN_PCT:
         return result(
             "load",
@@ -692,7 +778,9 @@ def check_voltage(inp: Inputs) -> dict[str, Any]:
     # WHY info, not pass/fail: the right voltage depends on which servo variant each arm uses, which
     # Studio does not know. Undervoltage itself shows up as a fault bit in the check above.
     detail = ", ".join(
-        f"{n} {min(v):.1f} V" if max(v) - min(v) < 0.05 else f"{n} {min(v):.1f} to {max(v):.1f} V"
+        f"{label(n)} {min(v):.1f} V"
+        if max(v) - min(v) < 0.05
+        else f"{label(n)} {min(v):.1f} to {max(v):.1f} V"
         for n, v in per.items()
     )
     return result("voltage", "Rig", title, "info", detail)
@@ -713,7 +801,7 @@ def check_leader_torque(inp: Inputs) -> dict[str, Any]:
             "Rig",
             title,
             "warn",
-            f"Torque is on: {', '.join(held)}.",
+            f"Torque is on: {', '.join(map(label, held))}.",
             "A leader with torque fights your hand. Press Torque off.",
         )
     return result("leader_torque", "Rig", title, "pass", "Every leader has torque off")
@@ -750,12 +838,13 @@ def check_cameras(inp: Inputs) -> dict[str, Any]:
         if not c.get("online") or c.get("age_s") is None or c["age_s"] > CAMERA_STALE_S
     ]
     rates = ", ".join(
-        f"{k} {c['fps']:.0f} fps" if c.get("fps") else f"{k} no frames"
+        f"{label(k)} {c['fps']:.0f} fps" if c.get("fps") else f"{label(k)} no frames"
         for k, c in sorted(inp.cameras.items())
     )
     if down:
         why = "; ".join(
-            f"{k}: {inp.cameras[k].get('message') or 'no frame in the last 2 s'}" for k in down
+            f"{label(k)}: {inp.cameras[k].get('message') or 'no frame in the last 2 s'}"
+            for k in down
         )
         return result(
             "cameras",
@@ -855,6 +944,9 @@ CHECKS: tuple[Callable[[Inputs], dict[str, Any]], ...] = (
     check_packages,
     check_rig_config,
     check_config_ports,
+    check_units,
+    check_step_limit,
+    check_camera_config,
     check_calibrations,
     check_disk,
     check_arms_answer,
