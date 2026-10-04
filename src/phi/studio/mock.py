@@ -1,0 +1,214 @@
+"""A rig with no hardware: arms and cameras that behave enough like an SO-101 setup to drive every
+flow.
+
+Behaviour, so tests and members without an arm see what a real rig would do:
+  * a follower with torque on moves toward its goal at a capped joint speed; with torque off it
+    ignores goals
+  * a leader with torque off follows a slow scripted "hand"
+  * calibration registers are fixed per arm, and differ between arms, like real calibrations
+  * faults can be injected: overload / overheat / voltage on one joint, unplug on a whole arm or
+    camera
+Numbers for load, temperature and voltage are illustrative, not measured on an SO-101.
+"""
+
+from __future__ import annotations
+
+import math
+import time
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from phi.studio.identity import Calibration, JointCal
+from phi.studio.rig import JOINTS, JointHealth
+
+MAX_SPEED_DEG_S = 180.0
+_HOME = {
+    "shoulder_pan": 0.0,
+    "shoulder_lift": -90.0,
+    "elbow_flex": 90.0,
+    "wrist_flex": 60.0,
+    "wrist_roll": 0.0,
+    "gripper": 5.0,
+}
+_FAULT_BIT = {"voltage": 1, "overheat": 4, "overload": 32}
+
+
+class FakeClock:
+    """Deterministic time for tests. Real runs use time.monotonic."""
+
+    def __init__(self, t: float = 1000.0) -> None:
+        self.t = t
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, dt: float) -> None:
+        self.t += dt
+
+
+def _calibration(seed: int) -> Calibration:
+    rng = np.random.default_rng(seed)
+    return {
+        j: JointCal(
+            i + 1,
+            0,
+            int(rng.integers(-2000, 2000)),
+            int(rng.integers(700, 1000)),
+            int(rng.integers(3000, 3400)),
+        )
+        for i, j in enumerate(JOINTS)
+    }
+
+
+@dataclass
+class MockArm:
+    name: str
+    role: str
+    clock: object = field(default=time.monotonic)
+    seed: int = 0
+    pos: dict[str, float] = field(default_factory=lambda: dict(_HOME))
+    goal: dict[str, float] = field(default_factory=lambda: dict(_HOME))
+    torque: bool = False
+    faults: dict[str, int] = field(default_factory=dict)
+    unplugged: bool = False
+
+    def __post_init__(self) -> None:
+        self._cal = _calibration(self.seed)
+        self._t = self.clock()  # type: ignore[operator]
+        self._t0 = self._t
+
+    # -- fault injection
+    # -------------------------------------------------------------------------------------
+    def inject(self, kind: str, joint: str | None = None) -> None:
+        if kind == "unplug":
+            self.unplugged = True
+        elif kind == "replug":
+            self.unplugged = False
+        elif kind == "clear":
+            self.faults.clear()
+        else:
+            assert joint in JOINTS, f"joint required for {kind}"
+            self.faults[joint] = self.faults.get(joint, 0) | _FAULT_BIT[kind]
+
+    # -- ArmBus ------------------------------------------------------------------------------
+    # ----------------
+    def _check(self) -> None:
+        if self.unplugged:
+            raise ConnectionError(f"{self.name}: no status packet (port unplugged)")
+
+    def _step(self) -> None:
+        now = self.clock()  # type: ignore[operator]
+        dt, self._t = now - self._t, now
+        if self.role == "leader" and not self.torque:
+            s = now - self._t0
+            for i, j in enumerate(JOINTS):
+                amp = 30.0 if j != "gripper" else 20.0
+                self.pos[j] = _HOME[j] + amp * math.sin(2 * math.pi * 0.25 * s + i)
+            return
+        if not self.torque:
+            return
+        step = MAX_SPEED_DEG_S * dt
+        for j in JOINTS:
+            if self.faults.get(j, 0) & _FAULT_BIT["overload"]:
+                continue  # protection: the joint stops tracking
+            err = self.goal[j] - self.pos[j]
+            self.pos[j] += max(-step, min(step, err))
+
+    def read_calibration(self) -> Calibration:
+        self._check()
+        return dict(self._cal)
+
+    def read_positions(self) -> dict[str, float]:
+        self._check()
+        self._step()
+        return dict(self.pos)
+
+    def write_goals(self, goals: dict[str, float]) -> None:
+        self._check()
+        self._step()
+        if self.torque:
+            self.goal.update(goals)
+
+    def set_torque(self, on: bool) -> None:
+        self._check()
+        self._step()
+        self.torque = on
+        self.goal = dict(self.pos)  # enabling torque must not jump to a stale goal
+
+    def read_health(self) -> dict[str, JointHealth]:
+        self._check()
+        self._step()
+        volts = 12.0 if self.role == "follower" else 5.0
+        out = {}
+        for j in JOINTS:
+            bits = self.faults.get(j, 0)
+            load = 0.0 if not self.torque else min(100.0, abs(self.goal[j] - self.pos[j]) * 2 + 8)
+            if bits & _FAULT_BIT["overload"]:
+                load = 95.0
+            temp = 38.0 + (40.0 if bits & _FAULT_BIT["overheat"] else 0.0)
+            v = volts * (0.7 if bits & _FAULT_BIT["voltage"] else 1.0)
+            out[j] = JointHealth(self.pos[j], load, temp, v, bits)
+        return out
+
+    def close(self) -> None:
+        self.torque = False
+
+
+@dataclass
+class MockCamera:
+    key: str
+    clock: object = field(default=time.monotonic)
+    fps: int = 30
+    width: int = 640
+    height: int = 480
+    hue: int = 0
+    unplugged: bool = False
+
+    def __post_init__(self) -> None:
+        self._t0 = self.clock()  # type: ignore[operator]
+        yy, xx = np.mgrid[0 : self.height, 0 : self.width]
+        self._base = np.stack(
+            [(xx * 255 // self.width), (yy * 255 // self.height), np.full_like(xx, self.hue % 256)],
+            -1,
+        ).astype(np.uint8)
+
+    def inject(self, kind: str) -> None:
+        self.unplugged = kind == "unplug"
+
+    def read_latest(self) -> tuple[np.ndarray, float, int]:
+        if self.unplugged:
+            raise ConnectionError(f"camera {self.key}: no frame (device gone)")
+        now = self.clock()  # type: ignore[operator]
+        seq = int(round((now - self._t0) * self.fps))
+        frame = self._base.copy()
+        # A bar that sweeps across the frame, so a frozen feed is visible at a glance.
+        x = (seq * 8) % self.width
+        frame[:, x : x + 12] = 255
+        return frame, now, seq
+
+    def close(self) -> None:
+        pass
+
+
+@dataclass
+class MockRig:
+    arms: list[MockArm]
+    cameras: list[MockCamera]
+
+
+def mock_rig(
+    pairs: int = 1,
+    cameras: tuple[str, ...] = ("front", "wrist", "top"),
+    clock: object = time.monotonic,
+) -> MockRig:
+    """1 pair (leader, follower) or 2 pairs (left_*, right_*), the shapes LeRobot's so_* and bi_so_*
+    classes use."""
+    sides = [""] if pairs == 1 else ["left_", "right_"]
+    arms = [
+        MockArm(f"{s}{role}", role, clock=clock, seed=10 * k + r)
+        for k, s in enumerate(sides)
+        for r, role in enumerate(("leader", "follower"))
+    ]
+    cams = [MockCamera(c, clock=clock, hue=60 * i) for i, c in enumerate(cameras)]
+    return MockRig(arms, cams)
