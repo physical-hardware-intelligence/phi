@@ -1,6 +1,7 @@
 /* Design tokens, v3 "Instrument" (group/studio/DESIGN.md).
-   Type: the Mac's own SF Pro and SF Mono at 13 px, the size Xcode, Instruments and Finder use. Studio only ever
-   runs on this Mac, so a webfont buys nothing and makes it look like a website.
+   Type: the Mac's own SF Pro and SF Mono. Body 14/21, measured 2026-10-04 at 1440 px against GitHub (14/21 for
+   64% of text), Linear docs (14/21, 78%) and Stripe docs (14/20, 46%); native-app 13/18 read as small in a browser.
+   Sizes are in rem, so Chrome's own font-size setting scales Studio like any well-built site.
    Colour: warm graphite neutrals (a faint yellow-red cast, never blue-black), one ink-blue accent for focus,
    selection and links, and desaturated state colours that appear only where they carry robot state.
    Light "Paper" is the default; dark "Graphite" is one click away. */
@@ -52,6 +53,17 @@
 
   --radius-sm: 3px; --radius-md: 5px; --radius-lg: 6px; --radius-xl: 8px; --radius-2xl: 10px;
 
+  /* One type scale; px at the default 16 px root in comments. Most text is base; sm is for secondary text only. */
+  --text-2xs: 0.6875rem;  /* 11: keyboard hints */
+  --text-xs: 0.75rem;     /* 12: captions, code chips */
+  --text-sm: 0.8125rem;   /* 13: subtitles, hints, badges, meta */
+  --text-base: 0.875rem;  /* 14: body, buttons, inputs, tables */
+  --text-md: 0.9375rem;   /* 15 */
+  --text-lg: 1rem;        /* 16: panel and dialog titles */
+  --text-xl: 1.125rem;    /* 18 */
+  --text-2xl: 1.25rem;    /* 20: page title */
+  --text-3xl: 1.75rem;    /* 28: big numbers */
+
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 
@@ -59,12 +71,12 @@
   --ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
   --ease-enter: cubic-bezier(0, 0, 0.38, 0.9);
 
-  --sidebar-w: 216px;
-  --assist-w: 400px;
-  --header-h: 52px;
-  --control-h: 30px;
-  --control-h-sm: 26px;
-  --row-h: 34px;
+  --sidebar-w: 15rem;      /* 240 */
+  --assist-w: 26.25rem;    /* 420 */
+  --header-h: 3.75rem;     /* 60 */
+  --control-h: 2rem;       /* 32, as GitHub and Vercel */
+  --control-h-sm: 1.75rem; /* 28 */
+  --row-h: 2.5rem;         /* 40 */
 }
 
 :root[data-theme="dark"] {

@@ -19,7 +19,7 @@ export function TopBar({ title, sub, onStop }: { title: string; sub: string; onS
     <header className="topbar">
       <div className="topbar-title">
         <h1 className="t-page">{title}</h1>
-        <p className="topbar-sub">{sub}</p>
+        <p className="topbar-sub" title={sub}>{sub}</p>
       </div>
       <div className="topbar-right">
         {loop && state && state.state !== "DISCONNECTED" && (
