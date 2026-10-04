@@ -328,15 +328,35 @@ def test_evals_are_kept_by_the_server_saved_and_shown_to_every_window(tmp_path: 
         try:
             a = await ws(session, server.port)
             await until(a, lambda d: d["type"] == "hello")
-            await a.send_str(json.dumps({"cmd": "eval_begin", "policy": "mock-reach",
-                                         "task": "cube in box", "planned": 2,
-                                         "limit_s": 10}))  # fmt: skip
+            send = lambda m: a.send_str(json.dumps(m))  # noqa: E731
+            await send({"cmd": "eval_begin", "policy": "mock-reach", "task": "cube in box",
+                        "planned": 2, "limit_s": 1})  # fmt: skip
             ev = await until(a, lambda d: d["type"] == "eval" and d["current"] is not None)
             rid = ev["current"]["id"]
-            await a.send_str(json.dumps({"cmd": "eval_mark", "outcome": "success", "note": "ok",
-                                         "duration_s": 3.2}))  # fmt: skip
-            ev = await until(a, lambda d: d["type"] == "eval" and d["current"]["n"] == 1)
+            await send({"cmd": "eval_mark", "outcome": "success", "run_id": "made-up"})
+            err = await until(a, lambda d: d["type"] == "error")
+            assert "no policy run" in err["message"]  # the server judges only runs it saw
+
+            for c in ("connect", "confirm", "arm"):
+                await send({"cmd": c})
+            await until(a, lambda d: d["type"] == "state" and d["state"] == "ARMED", beat=True)
+            await send({"cmd": "start", "activity": "policy", "policy": "mock-reach",
+                        "task": "cube in box", "limit_s": 1})  # fmt: skip
+            t = await until(a, lambda d: d["type"] == "telemetry" and d["policy"]
+                            and not d["policy"]["running"], beat=True)  # fmt: skip
+            run_id = t["policy"]["run_id"]
+
+            await send({"cmd": "resume"})  # a new run now would replace the unjudged one
+            await until(a, lambda d: d["type"] == "state" and d["state"] == "ARMED", beat=True)
+            await send({"cmd": "start", "activity": "policy", "policy": "mock-reach",
+                        "task": "cube in box", "limit_s": 1})  # fmt: skip
+            err = await until(a, lambda d: d["type"] == "error", beat=True)
+            assert "not judged" in err["message"]
+
+            await send({"cmd": "eval_mark", "outcome": "success", "note": "ok", "run_id": run_id})
+            ev = await until(a, lambda d: d["type"] == "eval" and d["current"]["n"] == 1, beat=True)
             assert ev["current"]["ci95"][1] == 1.0
+            assert ev["current"]["episodes"][0]["duration_s"] == pytest.approx(1.0, abs=0.1)
             assert (tmp_path / "evals" / f"{rid}.json").exists()
 
             b = await ws(session, server.port)  # view-only window
@@ -346,12 +366,37 @@ def test_evals_are_kept_by_the_server_saved_and_shown_to_every_window(tmp_path: 
             err = await until(b, lambda d: d["type"] == "error")
             assert "control" in err["message"]
 
-            await a.send_str(json.dumps({"cmd": "eval_mark", "outcome": "maybe"}))
-            err = await until(a, lambda d: d["type"] == "error")
-            assert "success" in err["message"]
-            await a.send_str(json.dumps({"cmd": "eval_end"}))
-            ev = await until(a, lambda d: d["type"] == "eval" and d["current"] is None)
+            await send({"cmd": "eval_mark", "outcome": "success", "run_id": run_id})
+            err = await until(a, lambda d: d["type"] == "error", beat=True)
+            assert "already judged" in err["message"]
+            await send({"cmd": "eval_end"})
+            ev = await until(a, lambda d: d["type"] == "eval" and d["current"] is None, beat=True)
             assert ev["past"][0]["id"] == rid and ev["past"][0]["n"] == 1
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+def test_a_bad_eval_file_does_not_break_new_windows(tmp_path: Any) -> None:
+    # Before: a record without an id made every new window's handler raise after it was added to
+    # the clients, leaking it (and possibly control) on each reconnect.
+    (tmp_path / "evals").mkdir()
+    (tmp_path / "evals" / "bad.json").write_text(json.dumps({"episodes": []}))
+
+    async def go() -> None:
+        studio, server, session = await started_with_data(tmp_path)
+        try:
+            a = await ws(session, server.port)
+            ev = await until(a, lambda d: d["type"] == "eval")
+            assert ev["current"] is None and ev["past"] == []
+            await a.close()
+            for _ in range(20):
+                if not studio.clients:
+                    break
+                await asyncio.sleep(0.05)
+            assert not studio.clients and studio.controller is None
         finally:
             await session.close()
             await server.close()

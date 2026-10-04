@@ -148,6 +148,35 @@ def test_calibration_is_refused_while_any_arm_holds_torque() -> None:
     assert w.session.state.name == "IDENTIFIED"
 
 
+def test_a_leader_that_comes_up_holding_torque_can_be_released_before_arming() -> None:
+    # Before: release was refused outside Armed/Stopped and skipped leaders, so this rig could
+    # never be calibrated or cleared.
+    w, _, out = make()
+    arm(w, "leader").torque = True  # left on by another program
+    w.handle({"cmd": "connect"})
+    w.handle({"cmd": "cal_start", "arm": "follower"})
+    assert "leader holds torque" in of(out, "error")[-1]["message"]
+    w.handle({"cmd": "release"})
+    assert arm(w, "leader").torque is False and w.torque["leader"] is False
+    assert w.session.state.name == "IDENTIFIED"  # nothing to arm or disarm, so no state change
+    w.handle({"cmd": "cal_start", "arm": "follower"})
+    assert w.session.state.name == "CALIBRATING"
+
+
+def test_release_with_nothing_holding_torque_before_arming_is_still_refused() -> None:
+    w, _, out = make()
+    w.handle({"cmd": "connect"})
+    n = len(of(out, "error"))
+    w.handle({"cmd": "release"})
+    assert len(of(out, "error")) == n + 1 and w.session.state.name == "IDENTIFIED"
+
+
+def test_disconnect_clears_the_identity_every_window_shows() -> None:
+    w, _, out = armed()
+    w.handle({"cmd": "disconnect"})
+    assert of(out, "identity")[-1]["arms"] == [] and w.identity == []
+
+
 def test_calibrating_an_arm_on_a_swapped_cable_is_refused() -> None:
     # The port named follower reaches the leader: calibrating it would write follower registers into
     # the leader and hide the swap from every later identity check.

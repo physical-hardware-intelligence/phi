@@ -103,6 +103,7 @@ class Studio:
         self.last: dict[
             str, dict[str, Any]
         ] = {}  # newest state / identity, replayed to new windows
+        self.run: dict[str, Any] | None = None  # telemetry's policy view, set by the reader thread
         self.loop: asyncio.AbstractEventLoop | None = None
         self.proc: Any = None
         self.conn: Any = None
@@ -135,6 +136,8 @@ class Studio:
     def _dispatch(self, msg: dict[str, Any]) -> None:
         if msg.get("type") in REPLAYED:
             self.last[msg["type"]] = msg
+        elif msg.get("type") == "telemetry":
+            self.run = msg.get("policy")  # the newest policy run: the only one an eval can judge
         if self.loop is not None:
             self.loop.call_soon_threadsafe(self._fanout, msg)
 
@@ -211,14 +214,14 @@ class Studio:
         if self.controller is None:
             self.controller = client
         sender = asyncio.create_task(client.run())
-        client.push({"type": "hello", "control": self.controller is client,
-                     "mock": self.spec.get("kind", "mock") == "mock"})  # fmt: skip
-        for kind in REPLAYED:
-            if kind in self.last:
-                client.push(self.last[kind])
-        if self.evals is not None:
-            client.push(self._eval_msg())
-        try:
+        try:  # WHY everything after clients.add is inside: a failure must still run the cleanup
+            client.push({"type": "hello", "control": self.controller is client,
+                         "mock": self.spec.get("kind", "mock") == "mock"})  # fmt: skip
+            for kind in REPLAYED:
+                if kind in self.last:
+                    client.push(self.last[kind])
+            if self.evals is not None:
+                client.push(self._eval_msg())
             async for m in ws:
                 if m.type == WSMsgType.TEXT:
                     self._from_client(client, m.data)
@@ -261,9 +264,17 @@ class Studio:
         if cmd in EVAL_COMMANDS:
             self._eval(client, cmd, msg)
             return
+        if cmd == "start" and msg.get("activity") == "policy" and self._unjudged():
+            # A new run replaces the last one, and the unjudged episode could never be judged.
+            client.push({"type": "error", "message": "The last eval episode is not judged yet.",
+                         "fix": "Judge it on the Evaluate page, or end the eval."})  # fmt: skip
+            return
         self.to_worker({k: v for k, v in msg.items() if isinstance(k, str)})
 
     # -- evals ----------------------------------------------------------------------------------
+    def _unjudged(self) -> bool:
+        return self.evals is not None and self.evals.awaiting(self.run)
+
     def _eval_msg(self) -> dict[str, Any]:
         assert self.evals is not None
         return {"type": "eval", "current": self.evals.current, "past": self.evals.list(20),
@@ -280,8 +291,7 @@ class Studio:
                 e.begin(msg.get("policy"), msg.get("task", ""), msg.get("planned"),
                         msg.get("limit_s"))  # fmt: skip
             elif cmd == "eval_mark":
-                e.mark(msg.get("outcome"), msg.get("note", ""), msg.get("duration_s"),
-                       msg.get("run_id"), msg.get("run_started_at"))  # fmt: skip
+                e.mark(msg.get("outcome"), msg.get("note", ""), self.run, msg.get("run_id"))
             elif cmd == "eval_undo":
                 e.undo()
             else:

@@ -404,22 +404,28 @@ class RigWorker:
 
     def _cmd_release(self, msg: dict[str, Any]) -> None:
         # WHY allowed in FAULT: an overloaded gripper keeps squeezing while torque is on.
-        faulted = self.session.state is State.FAULT
-        if not faulted and self.session.state not in (State.ARMED, State.STOPPED):
+        # WHY allowed before arming when an arm holds torque: an arm can come up holding it, such as
+        # a leader left on by another program. LeRobot turns leader torque off on connect
+        # (so_leader.py:137).
+        st = self.session.state
+        stays = st is State.FAULT or (
+            st in (State.IDENTIFIED, State.READY) and any(self.torque.values())
+        )
+        if not stays and st not in (State.ARMED, State.STOPPED):
             self.session.released()  # raises with the reason
         silent = self._release_all()
         if silent:
             self.error(f"{', '.join(silent)} did not answer, so its torque may still be on",
                        "Support the arm and cut its power, then reconnect it.")  # fmt: skip
-        if not faulted:
+        if not stays:
             self.session.released()
 
     def _cmd_clear(self, msg: dict[str, Any]) -> None:
-        holding = [f.name for f in self.followers if self.torque[f.name]]
+        holding = [n for n, on in self.torque.items() if on]
         if holding and self.session.state is State.FAULT:
             self.error(f"Turn torque off before clearing: {', '.join(holding)} still holds",
                        "Clearing re-checks every arm, so no arm may hold torque. Support each "
-                       "follower, then use Torque off.")  # fmt: skip
+                       "arm, then use Torque off.")  # fmt: skip
             return
         self.session.cleared()
         self.dead.clear()
@@ -429,6 +435,8 @@ class RigWorker:
         self._cal_abort()
         self._release_all()
         self.run = None
+        self.identity = []
+        self.send({"type": "identity", "arms": []})  # so no window keeps showing a rig that is gone
         self.session.disconnected()
 
     def _cmd_inject(self, msg: dict[str, Any]) -> None:
@@ -475,16 +483,16 @@ class RigWorker:
         self.torque[a.name] = on
 
     def _release_all(self) -> list[str]:
-        """Torque off on every follower that may hold it, dead ones included (a replugged arm
-        answers again). Returns the followers that did not answer."""
+        """Torque off on every arm that may hold it, leaders too and dead ones included (a
+        replugged arm answers again). Returns the arms that did not answer."""
         silent = []
-        for f in self.followers:
-            if not self.torque[f.name]:
+        for a in self.arms:
+            if not self.torque[a.name]:
                 continue
             try:
-                self._set_torque(f, False)
+                self._set_torque(a, False)
             except BUS_ERRORS:
-                silent.append(f.name)
+                silent.append(a.name)
         return silent
 
     def _freeze(self) -> None:

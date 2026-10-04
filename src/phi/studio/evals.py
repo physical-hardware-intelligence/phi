@@ -41,6 +41,23 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return (max(0.0, centre - half), min(1.0, centre + half))
 
 
+def _well_formed(rec: Any) -> bool:
+    """A record this module wrote. Anything else on disk is skipped, so one bad file cannot stop
+    Studio from starting or listing."""
+    return (
+        isinstance(rec, dict)
+        and isinstance(rec.get("id"), str)
+        and isinstance(rec.get("policy"), str)
+        and isinstance(rec.get("task"), str)
+        and is_finite_number(rec.get("started_at"))
+        and is_finite_number(rec.get("limit_s"))
+        and (rec.get("ended_at") is None or is_finite_number(rec.get("ended_at")))
+        and isinstance(rec.get("planned"), int)
+        and isinstance(rec.get("episodes"), list)
+        and all(isinstance(e, dict) and e.get("outcome") in OUTCOMES for e in rec["episodes"])
+    )
+
+
 def _summarise(rec: dict[str, Any]) -> dict[str, Any]:
     eps = rec["episodes"]
     k = sum(e["outcome"] == "success" for e in eps)
@@ -66,11 +83,11 @@ class EvalStore:
             for p in self.dir.glob("*.json"):
                 try:
                     rec = json.loads(p.read_text())
-                    if isinstance(rec, dict) and isinstance(rec.get("episodes"), list):
-                        out.append(_summarise(rec))
-                except (OSError, ValueError, KeyError, TypeError):
+                except (OSError, ValueError):
                     continue  # a damaged file must not stop Studio; the others still list
-        return sorted(out, key=lambda r: r.get("started_at", 0), reverse=True)
+                if _well_formed(rec):
+                    out.append(_summarise(rec))
+        return sorted(out, key=lambda r: r["started_at"], reverse=True)
 
     def list(self, limit: int = 50) -> list[dict[str, Any]]:
         """Summaries without episodes, newest first, not counting the running eval."""
@@ -85,6 +102,13 @@ class EvalStore:
         tmp = path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(rec, indent=2))
         os.replace(tmp, path)  # WHY: a crash mid-write leaves the previous file, never half of one
+
+    def _commit(self, rec: dict[str, Any]) -> dict[str, Any]:
+        """Save, then adopt. WHY this order: if the save fails, memory still matches the disk, so a
+        judgement reported as not saved is not counted later either."""
+        self._save(_summarise(rec))
+        self.current = None if rec["ended_at"] else rec
+        return rec
 
     def _need(self) -> dict[str, Any]:
         if self.current is None:
@@ -110,52 +134,66 @@ class EvalStore:
         rec = {"id": rid, "policy": policy, "task": task, "planned": planned,
                "limit_s": float(limit_s), "started_at": t, "ended_at": None,
                "episodes": []}  # fmt: skip
-        self._save(_summarise(rec))
-        self.current = rec
-        return rec
+        return self._commit(rec)
+
+    # -- judging ------------------------------------------------------------------------------
+    # `run` is the worker's view of its newest policy run (worker.PolicyRun.view), taken by the
+    # server from telemetry. WHY not fields from the browser: a window could then judge a run
+    # Studio never ran, or one from before the eval.
+    @staticmethod
+    def _why_not_mine(rec: dict[str, Any], run: Any) -> str | None:
+        if not isinstance(run, dict) or not isinstance(run.get("run_id"), str):
+            return "There is no policy run to judge. Run an episode first."
+        ran = (run.get("id"), run.get("task"), run.get("limit_s"))
+        if ran != (rec["policy"], rec["task"], rec["limit_s"]):
+            return "The last run used a different policy, task or time limit from this eval."
+        started = run.get("started_at")
+        if not is_finite_number(started) or started < rec["started_at"]:
+            return "The last run started before the eval. Run a new episode to judge."
+        return None
+
+    def awaiting(self, run: Any) -> bool:
+        """True while `run` is an ended episode of the running eval that nobody has judged."""
+        rec = self.current
+        return (
+            rec is not None
+            and self._why_not_mine(rec, run) is None
+            and not run.get("running")
+            and all(e.get("run_id") != run["run_id"] for e in rec["episodes"])
+        )
 
     def mark(
-        self,
-        outcome: Any,
-        note: Any = "",
-        duration_s: Any = None,
-        run_id: Any = None,
-        run_started_at: Any = None,
+        self, outcome: Any, note: Any = "", run: Any = None, run_id: Any = None
     ) -> dict[str, Any]:
+        """Judge `run`. `run_id` is the run the window showed: if a newer run replaced it, the
+        window is out of date and the judgement is refused."""
         rec = self._need()
         if outcome not in OUTCOMES:
             raise EvalError("The outcome must be success or failure.")
         if not isinstance(note, str) or len(note) > MAX_NOTE:
             raise EvalError(f"A note must be text of at most {MAX_NOTE} characters.")
-        if duration_s is not None and (not is_finite_number(duration_s) or duration_s < 0):
-            raise EvalError("The episode duration must be a number of seconds.")
-        if run_id is not None and (not isinstance(run_id, str) or len(run_id) > 64):
-            raise EvalError("The run id must be short text.")
-        if run_started_at is not None and (
-            not is_finite_number(run_started_at) or run_started_at < rec["started_at"]
-        ):
-            raise EvalError("This run started before the eval. Run a new episode to judge.")
-        if run_id is not None and any(e.get("run_id") == run_id for e in rec["episodes"]):
+        why = self._why_not_mine(rec, run)
+        if why:
+            raise EvalError(why)
+        if run_id != run["run_id"]:
+            raise EvalError("A newer run replaced the one shown. Judge the newest run.")
+        if run.get("running"):
+            raise EvalError("The episode is still running. Judge it when it ends.")
+        if any(e.get("run_id") == run_id for e in rec["episodes"]):
             raise EvalError("This run is already judged. Undo the last judgement to change it.")
         if len(rec["episodes"]) >= MAX_EPISODES:
             raise EvalError(f"An eval holds at most {MAX_EPISODES} episodes.")
-        rec["episodes"].append({"n": len(rec["episodes"]) + 1, "outcome": outcome, "note": note,
-                                "duration_s": duration_s, "run_id": run_id,
-                                "at": self.now()})  # fmt: skip
-        self._save(_summarise(rec))
-        return rec
+        dur = run.get("episode_s")
+        episode = {"n": len(rec["episodes"]) + 1, "outcome": outcome, "note": note,
+                   "duration_s": dur if is_finite_number(dur) else None, "run_id": run_id,
+                   "at": self.now()}  # fmt: skip
+        return self._commit({**rec, "episodes": [*rec["episodes"], episode]})
 
     def undo(self) -> dict[str, Any]:
         rec = self._need()
         if not rec["episodes"]:
             raise EvalError("There is no judgement to undo.")
-        rec["episodes"].pop()
-        self._save(_summarise(rec))
-        return rec
+        return self._commit({**rec, "episodes": rec["episodes"][:-1]})
 
     def end(self) -> dict[str, Any]:
-        rec = self._need()
-        rec["ended_at"] = self.now()
-        self._save(_summarise(rec))
-        self.current = None
-        return rec
+        return self._commit({**self._need(), "ended_at": self.now()})
