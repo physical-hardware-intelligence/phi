@@ -379,9 +379,15 @@ class Studio {
           parts: m.echoed ? t.parts.filter((p) => p.kind !== "text") : t.parts,
         }));
         break;
-      case "limit":
-        this.lastTurn((t) => ({ ...t, parts: [...t.parts, { kind: "tool", text: `Usage limit: ${m.status}` }] }));
+      case "limit": {
+        // WHY the 1e12 test: whether resetsAt is in seconds or milliseconds is not documented; both are handled.
+        const at = typeof m.resets_at === "number" ? new Date(m.resets_at > 1e12 ? m.resets_at : m.resets_at * 1000) : null;
+        const when = at ? ` It resets at ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}.` : "";
+        const what = m.status === "allowed_warning" ? "Close to the Claude usage limit."
+          : m.status === "rejected" ? "The Claude usage limit is reached." : `Claude usage: ${m.status}.`;
+        this.lastTurn((t) => ({ ...t, parts: [...t.parts, { kind: "tool", text: what + when }] }));
         break;
+      }
     }
   }
 
