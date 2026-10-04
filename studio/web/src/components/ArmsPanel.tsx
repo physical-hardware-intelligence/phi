@@ -11,8 +11,8 @@ export function ArmsPanel() {
   return (
     <section className="panel arms">
       <div className="panel-head">
-        <h2>Arms</h2>
-        <span className="faint t-xs">{arms.length ? `${arms.length} found` : ""}</span>
+        <h2 className="panel-title">Arms</h2>
+        <span className="panel-sub">{arms.length ? `${arms.length} found` : ""}</span>
       </div>
       {arms.length === 0 ? (
         <p className="empty">
@@ -34,7 +34,7 @@ export function ArmsPanel() {
                   </span>
                   {torque && <span className="badge tone-warn">Torque on</span>}
                 </div>
-                <div className="arm-meta mono faint id">{a.port}</div>
+                <div className="arm-meta mono faint">{a.port}</div>
                 <div className="arm-check">
                   {!online ? (
                     <span className="check tone-danger"><Unplug aria-hidden />Not answering</span>

@@ -1,4 +1,4 @@
-import { Circle, Hand, LoaderCircle, OctagonAlert, Plug, Square, TriangleAlert } from "lucide-react";
+import { Circle, Hand, LoaderCircle, OctagonAlert, Plug, Ruler, Square, TriangleAlert } from "lucide-react";
 import type { SessionState, StateMsg } from "../lib/studio";
 
 // Shape as well as colour, so state never depends on colour alone (WCAG 1.4.1).
@@ -7,13 +7,14 @@ const SHAPE: Record<SessionState, typeof Circle> = {
   CONNECTED: LoaderCircle,
   IDENTIFIED: TriangleAlert,
   READY: Hand,
+  CALIBRATING: Ruler,
   ARMED: Circle,
   MOVING: Circle,
   STOPPED: Square,
   FAULT: OctagonAlert,
 };
 
-const ACTIVITY: Record<string, string> = { teleop: "teleop", policy: "policy", replay: "replay" };
+const ACTIVITY: Record<string, string> = { teleop: "teleop", policy: "policy", replay: "replay", calibration: "calibration" };
 
 export function StatePill({ s }: { s: StateMsg | null }) {
   if (!s) {

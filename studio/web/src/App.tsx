@@ -1,17 +1,24 @@
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { useCallback, useEffect } from "react";
-import { ActionBar } from "./components/ActionBar";
-import { ArmsPanel } from "./components/ArmsPanel";
-import { CameraTile } from "./components/CameraTile";
-import { JointTable } from "./components/JointTable";
-import { MockPanel } from "./components/MockPanel";
-import { Notices } from "./components/Notices";
+import { useCallback, useEffect, type ComponentType } from "react";
+import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
-import { studio, useStudio } from "./lib/studio";
+import { getTheme, setTheme, studio, useRoute, type Route } from "./lib/studio";
+import { Calibrate } from "./pages/Calibrate";
+import { Evaluate } from "./pages/Evaluate";
+import { Overview } from "./pages/Overview";
+import { Policy } from "./pages/Policy";
+import { Teleop } from "./pages/Teleop";
 
-const CAMERAS = ["front", "wrist", "top"];
+const PAGES: Record<Route, { title: string; sub: string; el: ComponentType }> = {
+  overview: { title: "Overview", sub: "Rig status, and what to do next", el: Overview },
+  calibrate: { title: "Calibrate", sub: "Write each arm's homing offsets and joint ranges", el: Calibrate },
+  teleop: { title: "Teleoperate", sub: "Drive each follower with its leader", el: Teleop },
+  policy: { title: "Run policy", sub: "Run a trained policy on the followers", el: Policy },
+  evaluate: { title: "Evaluate", sub: "Judge episodes and measure the success rate", el: Evaluate },
+};
 
 export function App() {
+  const route = useRoute();
   const stop = useCallback(() => {
     if (studio.send({ cmd: "stop" })) return;
     // WHY say so: a silent no-op Stop is the worst failure a stop button can have.
@@ -21,46 +28,26 @@ export function App() {
     );
   }, []);
 
-  // Esc stops from any focus, including inside dialogs: capture phase, before anything else.
+  // Esc stops from any page and any focus, including inside dialogs: capture phase, before anything else.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") stop(); };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [stop]);
-  useEffect(() => { studio.start(); }, []);
+  useEffect(() => { setTheme(getTheme()); studio.start(); }, []);
 
-  const cams = useStudio((s) => s.cameras);
-  // Stable order: the club's usual keys first, anything else after, alphabetically.
-  const keys = [...new Set([...CAMERAS, ...Object.keys(cams)])].filter(
-    (k) => !Object.keys(cams).length || k in cams,
-  );
-
+  const page = PAGES[route];
+  const Page = page.el;
   return (
     <Tooltip.Provider delayDuration={400}>
-      <div className="app">
-        <TopBar onStop={stop} />
-        <main className="main">
-          <div className="page-head">
-            <h1 className="t-xl">Rig</h1>
-          </div>
-          <ActionBar />
-          <Notices />
-          <div className="rig-grid">
-            <div className="col">
-              <section className="panel cams-panel">
-                <div className="panel-head"><h2>Cameras</h2></div>
-                <div className="cams">
-                  {keys.map((k) => <CameraTile key={k} name={k} />)}
-                </div>
-              </section>
-              <JointTable />
-            </div>
-            <div className="col">
-              <ArmsPanel />
-              <MockPanel />
-            </div>
-          </div>
-        </main>
+      <div className="shell">
+        <Sidebar />
+        <div className="main">
+          <TopBar title={page.title} sub={page.sub} onStop={stop} />
+          <main className="content" key={route}>
+            <Page />
+          </main>
+        </div>
       </div>
     </Tooltip.Provider>
   );

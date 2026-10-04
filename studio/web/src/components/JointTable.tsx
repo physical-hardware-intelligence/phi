@@ -18,7 +18,7 @@ export function JointTable() {
   if (!arms.length) {
     return (
       <section className="panel joints">
-        <div className="panel-head"><h2>Joints</h2></div>
+        <div className="panel-head"><h2 className="panel-title">Joints</h2></div>
         <p className="empty">Joint readings appear once the rig is connected.</p>
       </section>
     );
@@ -26,8 +26,8 @@ export function JointTable() {
   return (
     <section className="panel joints">
       <div className="panel-head">
-        <h2>Joints</h2>
-        <span className="faint t-xs">degrees; gripper 0 to 100</span>
+        <h2 className="panel-title">Joints</h2>
+        <span className="panel-sub">Degrees; gripper 0 to 100</span>
       </div>
       <div className="table-scroll">
         <table className="jt">

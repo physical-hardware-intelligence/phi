@@ -23,26 +23,28 @@ export function MockPanel() {
   return (
     <section className="panel mockpanel">
       <div className="panel-head">
-        <h2>Fault drill</h2>
-        <span className="faint t-xs">mock rig only</span>
+        <div>
+          <h2 className="panel-title">Fault drill</h2>
+          <p className="panel-sub">Mock rig only: see how Studio reacts to each fault</p>
+        </div>
       </div>
       <div className="panel-body mock-form">
         <label className="field">
           <span className="field-label">Arm</span>
-          <select value={target} onChange={(e) => setArm(e.target.value)}>
+          <select className="select" value={target} onChange={(e) => setArm(e.target.value)}>
             {arms.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
           </select>
         </label>
         <label className="field">
           <span className="field-label">Fault</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          <select className="select" value={kind} onChange={(e) => setKind(e.target.value)}>
             {KINDS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
           </select>
         </label>
         {kind !== "unplug" && kind !== "swap" && (
           <label className="field">
             <span className="field-label">Joint</span>
-            <select value={joint} onChange={(e) => setJoint(e.target.value)}>
+            <select className="select" value={joint} onChange={(e) => setJoint(e.target.value)}>
               {JOINTS.map((j) => <option key={j} value={j}>{j}</option>)}
             </select>
           </label>

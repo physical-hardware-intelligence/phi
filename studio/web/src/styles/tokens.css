@@ -1,81 +1,106 @@
-/* Design tokens. Values from the Studio design brief: neutral chrome (OKLCH hue 260, low chroma),
-   colour reserved for state, 4 px spacing scale, Inter + Geist Mono. Dark is the default theme
-   because camera tiles and plots fill most of the screen. */
+/* Design tokens, v2 (group/studio/DESIGN.md). Light "Paper" is the default; dark "Graphite" is one click
+   away. Neutrals are cool gray with a slight blue hue, never zero-chroma black. Cobalt is the accent for focus,
+   selection and links only; state colours are reserved for robot state; primary buttons are ink. */
 :root {
-  color-scheme: dark;
-  --bg-app: #131416;
-  --bg-panel: #18191b;
-  --bg-raised: #202224;
-  --bg-hover: #27292b;
-  --bg-selected: #26313f;
-  --border-subtle: #2f3033;
-  --border-control: #727578;
-  --text-primary: #f0f2f4;
-  --text-secondary: #bbbec2;
-  --text-tertiary: #9b9fa3;
-  --text-disabled: #67696c;
-  --focus-ring: #60aaf3;
-  --action-primary-bg: #f0f2f4;
-  --action-primary-fg: #131416;
-  --action-danger-bg: #c92f33;
-  --action-danger-fg: #fcfcfc;
-
-  --ok-solid: #51c672;    --ok-text: #83dc97;    --ok-subtle: #1a321f;
-  --info-solid: #53a3f2;  --info-text: #8cc3fc;  --info-subtle: #192d41;
-  --warn-solid: #f9b73f;  --warn-text: #fbc865;  --warn-subtle: #3b2a12;  --warn-on-solid: #24180a;
-  --danger-solid: #e24947; --danger-text: #ff9492; --danger-subtle: #451e1c;
-  --neutral-solid: #9b9fa3; --neutral-text: #bbbec2; --neutral-subtle: #202224;
-
-  --shadow-float: 0 0 0 1px var(--border-subtle);
-
-  --space-0-5: 2px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
-  --space-5: 24px; --space-6: 32px; --space-7: 40px; --space-8: 48px; --space-9: 64px;
-
-  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 12px;
-
-  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
-
-  --dur-fast: 100ms; --dur-base: 150ms; --dur-enter: 200ms; --dur-panel: 240ms;
-  --ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
-  --ease-enter: cubic-bezier(0, 0, 0.38, 0.9);
-  --ease-exit: cubic-bezier(0.2, 0, 1, 0.9);
-
-  --topbar-h: 48px;
-  --sidebar-w: 208px;
-  --control-h: 32px;
-  --control-h-sm: 28px;
-  --row-h: 28px;
-}
-
-:root[data-theme="light"] {
   color-scheme: light;
-  --bg-app: #f6f7f8;
+  --bg-app: #f4f5f7;
+  --bg-sidebar: #eceef2;
   --bg-panel: #ffffff;
+  --bg-sunken: #f6f7f9;
   --bg-raised: #ffffff;
-  --bg-hover: #eff0f2;
-  --bg-selected: #ddebfa;
-  --border-subtle: #e0e1e4;
-  --border-control: #8a8c90;
-  --text-primary: #17181b;
-  --text-secondary: #4d5054;
-  --text-tertiary: #63666b;
-  --text-disabled: #9c9ea2;
-  --focus-ring: #0076d3;
-  --action-primary-bg: #17181b;
+  --bg-hover: #eceef2;
+  --bg-active: #e3e6ec;
+  --bg-selected: #e6ecfa;
+  --bg-video: #0d1015;
+  --border-subtle: #e1e4e9;
+  --border-strong: #cfd4dc;
+  --border-control: #c3c9d3;
+  --text-primary: #151920;
+  --text-secondary: #4a5263;
+  --text-tertiary: #737c8e;
+  --text-disabled: #a8afbb;
+  --text-on-video: #e9ecf2;
+
+  --accent: #2d5bd7;
+  --accent-text: #2449b0;
+  --accent-subtle: #e8eefc;
+  --focus-ring: #2d5bd7;
+
+  --action-primary-bg: #1c2330;
+  --action-primary-hover: #2b3445;
   --action-primary-fg: #ffffff;
-  --action-danger-bg: #d01c29;
+  --action-danger-bg: #cf3337;
+  --action-danger-hover: #b52a2e;
   --action-danger-fg: #ffffff;
 
-  --ok-solid: #25984d;    --ok-text: #0f6a31;    --ok-subtle: #e6fae9;
-  --info-solid: #007cd9;  --info-text: #005caa;  --info-subtle: #eaf5ff;
-  --warn-solid: #ca7904;  --warn-text: #905211;  --warn-subtle: #fff4d7;  --warn-on-solid: #301d0d;
-  --danger-solid: #db2b33; --danger-text: #b71824; --danger-subtle: #ffeeee;
-  --neutral-solid: #63666b; --neutral-text: #4d5054; --neutral-subtle: #eff0f2;
+  --ok-solid: #1d8a4b;     --ok-text: #156b39;     --ok-subtle: #e4f3ea;
+  --info-solid: #2f6fde;   --info-text: #2356b3;   --info-subtle: #e7effd;
+  --warn-solid: #c47a0c;   --warn-text: #8f5507;   --warn-subtle: #fcf1dc;
+  --danger-solid: #cf3337; --danger-text: #ad2529; --danger-subtle: #fbe9e9;
+  --neutral-solid: #737c8e; --neutral-text: #4a5263; --neutral-subtle: #eceef2;
 
-  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.08);
+  --shadow-float: 0 1px 2px rgb(16 24 40 / 0.06), 0 12px 32px rgb(16 24 40 / 0.12);
+  --overlay: rgb(16 21 30 / 0.36);
+
+  --space-0-5: 2px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px; --space-9: 48px;
+
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 10px; --radius-2xl: 14px;
+
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --dur-fast: 100ms; --dur-base: 150ms; --dur-enter: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --ease-enter: cubic-bezier(0, 0, 0.38, 0.9);
+
+  --sidebar-w: 236px;
+  --header-h: 60px;
+  --control-h: 36px;
+  --control-h-sm: 30px;
+  --row-h: 36px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-app: #12151b;
+  --bg-sidebar: #0f1217;
+  --bg-panel: #181c24;
+  --bg-sunken: #151920;
+  --bg-raised: #1f2430;
+  --bg-hover: #212734;
+  --bg-active: #283041;
+  --bg-selected: #1f2a42;
+  --bg-video: #07090c;
+  --border-subtle: #262c38;
+  --border-strong: #343c4c;
+  --border-control: #404a5c;
+  --text-primary: #e8ebf1;
+  --text-secondary: #a7afbe;
+  --text-tertiary: #7f889a;
+  --text-disabled: #566071;
+
+  --accent: #7598f3;
+  --accent-text: #a1b8f7;
+  --accent-subtle: #1e2943;
+  --focus-ring: #7598f3;
+
+  --action-primary-bg: #e8ebf1;
+  --action-primary-hover: #ffffff;
+  --action-primary-fg: #12151b;
+  --action-danger-bg: #d63c40;
+  --action-danger-hover: #e04f53;
+
+  --ok-solid: #3dbb6f;     --ok-text: #7dd9a0;     --ok-subtle: #16301f;
+  --info-solid: #5b8ff0;   --info-text: #9dbcf8;   --info-subtle: #1b2a45;
+  --warn-solid: #e3a03a;   --warn-text: #f1c47c;   --warn-subtle: #3a2a12;
+  --danger-solid: #e2565a; --danger-text: #f59c9e; --danger-subtle: #42191b;
+  --neutral-solid: #7f889a; --neutral-text: #a7afbe; --neutral-subtle: #212734;
+
+  --shadow-float: 0 0 0 1px var(--border-strong), 0 16px 40px rgb(0 0 0 / 0.5);
+  --overlay: rgb(0 0 0 / 0.55);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-enter: 0ms; --dur-panel: 0ms; }
+  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-enter: 0ms; }
 }
