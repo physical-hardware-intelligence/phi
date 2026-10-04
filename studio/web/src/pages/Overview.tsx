@@ -112,7 +112,7 @@ function RigHealth() {
               const h = t ? Object.values(t.health) : [];
               const faults = h.flatMap((x) => x.faults);
               const maxT = h.length ? Math.max(...h.map((x) => x.temp)) : null;
-              const maxL = h.length ? Math.max(...h.map((x) => x.load)) : null;
+              const maxL = h.length ? Math.max(...h.map((x) => Math.abs(x.load))) : null; // the sign is direction
               return (
                 <tr key={a.name}>
                   <td>

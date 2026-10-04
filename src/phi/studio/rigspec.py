@@ -39,6 +39,23 @@ SIDES = ("left", "right")
 # lerobot-setup-motors accepts only these device types (lerobot_setup_motors.py:46-66), so a
 # bimanual rig sets up its motors one arm at a time under the single-arm type.
 SETUP_MOTORS_TYPES = SINGLE_FOLLOWER + SINGLE_LEADER
+# Per-arm options each config class takes besides port (config_so_follower.py:28-41,
+# config_so_leader.py:24-27). A bi_so_leader passes only id, calibration_dir and port to its arms
+# (bi_so_leader.py:42-52), so its arms take none.
+ARM_OPTIONS = {
+    "follower": ("max_relative_target", "use_degrees", "disable_torque_on_disconnect"),
+    "leader": ("use_degrees",),
+}
+# The fields each camera config takes (cameras/configs.py:61-63, configuration_opencv.py:61-66,
+# configuration_realsense.py:58-63), and the one that picks the device. WHY a list: draccus refuses
+# any other key, so a note such as `hardware:` in robot-config.yaml must stay out of the commands.
+CAMERA_FIELDS = {
+    "opencv": ("type", "fps", "width", "height", "index_or_path", "color_mode", "rotation",
+               "warmup_s", "fourcc", "backend"),
+    "intelrealsense": ("type", "fps", "width", "height", "serial_number_or_name", "color_mode",
+                       "use_rgb", "use_depth", "rotation", "warmup_s"),
+}  # fmt: skip
+CAMERA_SOURCE = {"opencv": "index_or_path", "intelrealsense": "serial_number_or_name"}
 
 
 @dataclass(frozen=True)
@@ -57,6 +74,7 @@ class ArmSpec:
     calibration_dir: str | None = None  # the config's calibration_dir override, if any
     use_degrees: bool = True  # False: body joints read -100..100 instead of degrees
     max_relative_target: Any = None  # follower step limit; None means LeRobot does not clip
+    options: tuple[tuple[str, Any], ...] = ()  # ARM_OPTIONS as written, passed on to LeRobot
 
     @property
     def kind(self) -> str:
@@ -69,15 +87,13 @@ class ArmSpec:
     def calibration_path(self, root: Path) -> Path | None:
         """Where LeRobot reads and writes this arm's calibration. `root` is HF_LEROBOT_CALIBRATION.
         A calibration_dir in the config replaces the whole folder, kind and class included
-        (robot.py:49-51); a bimanual config passes its own to both arms (bi_so_follower.py:57)."""
+        (robot.py:49-51); a bimanual config passes its own to both arms (bi_so_follower.py:57).
+        WHY no expanduser: LeRobot uses the path as written, so a ~ is a folder named ~."""
         if self.lerobot_id is None:
             return None
-        base = (
-            Path(self.calibration_dir).expanduser()
-            if self.calibration_dir
-            else root / self.kind / self.folder
-        )
-        return base / f"{self.lerobot_id}.json"
+        if self.calibration_dir:
+            return Path(self.calibration_dir) / f"{self.lerobot_id}.json"
+        return root / self.kind / self.folder / f"{self.lerobot_id}.json"
 
 
 @dataclass(frozen=True)
@@ -85,6 +101,18 @@ class CameraSpec:
     key: str  # the key under cameras: in the config
     side: str | None  # left | right if declared on one arm of a bimanual rig
     fields: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def source(self) -> Any:
+        """What picks the device (an opencv index or path, a RealSense serial), or None when it
+        is missing, a TBD placeholder, or the type is one Studio does not build commands for."""
+        v = self.fields.get(CAMERA_SOURCE.get(str(self.fields.get("type")), ""))
+        return None if v in (None, "", "TBD") else v
+
+    def lerobot_fields(self) -> dict[str, Any]:
+        """The fields LeRobot's camera config takes; notes and unknown keys stay behind."""
+        keep = CAMERA_FIELDS.get(str(self.fields.get("type")), ())
+        return {k: v for k, v in self.fields.items() if k in keep}
 
     @property
     def feature(self) -> str:
@@ -149,22 +177,83 @@ def _line(node: Any) -> int | None:
     return node.start_mark.line + 1 if node is not None else None
 
 
+def _text(v: Any) -> str | None:
+    """A port, id or path as text; None for a missing value or one that is not a scalar."""
+    if v in (None, "") or isinstance(v, (dict, list, bool)):
+        return None
+    return str(v)
+
+
+def step_limit_issue(v: Any) -> str | None:
+    """Why LeRobot would misuse this max_relative_target, or None when it is fine or unset.
+    so_follower.py:221-232 clips each goal to present +/- the limit (robots/utils.py:90-110)."""
+    if v is None:
+        return None
+    if isinstance(v, dict):
+        if set(v) != set(JOINTS):
+            return (f"lists {', '.join(map(str, v)) or 'no joints'}; LeRobot needs exactly the six "
+                    f"motors or it raises on every action (robots/utils.py:99-100)")  # fmt: skip
+        vals = list(v.values())
+    elif isinstance(v, bool) or not isinstance(v, (int, float)):
+        return "is not a number or a per-joint mapping"
+    else:
+        vals = [v]
+    if any(isinstance(x, bool) or not isinstance(x, (int, float)) for x in vals):
+        return "has a value that is not a number"
+    if any(x <= 0 for x in vals):
+        return "is 0 or below, which holds the follower still: LeRobot clips every step to it"
+    return None
+
+
 def parse(text: str) -> RigSpec:
-    """Read robot-config.yaml. Raises yaml.YAMLError on a malformed file."""
+    """Read robot-config.yaml. Raises yaml.YAMLError on a malformed file; anything well-formed but
+    wrong for LeRobot (types, missing ids, bad values) is reported in `problems`, never raised."""
     root = _fields(yaml.compose(text))
     arms: list[ArmSpec] = []
     cams: list[CameraSpec] = []
     problems: list[str] = []
     sections: dict[str, dict[str, Any]] = {}
+
+    def add_cameras(where: str, node: Any, side: str | None) -> None:
+        for key, cam in _fields(node).items():
+            val = _scalar(cam)
+            if not isinstance(val, dict):
+                problems.append(f"{where}.{key} is not a mapping of camera settings.")
+            elif str(val.get("type")) not in CAMERA_FIELDS:
+                kinds = " and ".join(CAMERA_FIELDS)
+                problems.append(f"{where}.{key} has type {val.get('type')!r}; Studio builds "
+                                f"commands for {kinds} cameras only.")  # fmt: skip
+                cams.append(CameraSpec(key, side, val))
+            else:
+                cams.append(CameraSpec(key, side, val))
+
+    def options(src: dict[str, Any], role: str, where: str) -> tuple[tuple[str, Any], ...]:
+        out = []
+        for k in (k for k in ARM_OPTIONS[role] if k in src):
+            v = _scalar(src[k])
+            if k == "max_relative_target" and (why := step_limit_issue(v)):
+                problems.append(f"{where}.max_relative_target {why}.")
+            elif k != "max_relative_target" and not isinstance(v, bool):
+                problems.append(f"{where}.{k} is {v!r}; LeRobot takes true or false.")
+                continue  # WHY drop it: draccus would refuse the whole command over it
+            out.append((k, v))
+        return tuple(out)
+
     for section, role in (("robot", "follower"), ("teleop", "leader")):
         f = _fields(root.get(section))
         if not f:
             continue
         sections[section] = {k: _scalar(v) for k, v in f.items()}
         typ = str(_scalar(f.get("type")) or "")
-        rid = _scalar(f.get("id"))
-        rid = str(rid) if rid not in (None, "") else None
-        cal_dir = _scalar(f.get("calibration_dir")) or None
+        rid = _text(_scalar(f.get("id")))
+        raw_dir = _scalar(f.get("calibration_dir"))
+        cal_dir = _text(raw_dir)
+        if raw_dir not in (None, "") and cal_dir is None:
+            problems.append(f"{section}.calibration_dir is not a path.")
+        if cal_dir and cal_dir.startswith("~"):
+            problems.append(f"{section}.calibration_dir starts with ~, which LeRobot does "
+                            "not expand: it makes a folder named ~. Write the full "
+                            "path.")  # fmt: skip
         single = SINGLE_FOLLOWER if role == "follower" else SINGLE_LEADER
         bi = BI_FOLLOWER if role == "follower" else BI_LEADER
         if typ in LEGACY_BI:
@@ -177,18 +266,30 @@ def parse(text: str) -> RigSpec:
             for side in SIDES:
                 sub = _fields(f.get(f"{side}_arm_config"))
                 port_node = sub.get("port") if sub else f.get(f"{side}_arm_port")
-                # WHY leaders are always degrees: 0.6.0's bi_so_leader builds each arm's config
-                # without use_degrees, so the default True wins (bi_so_leader.py:42-52).
-                deg = True if role == "leader" else _scalar(sub.get("use_degrees")) is not False
+                where = f"{section}.{side}_arm_config"
+                if role == "leader":
+                    # WHY leaders are always degrees and take no options: 0.6.0's bi_so_leader
+                    # builds each arm from id, calibration_dir and port (bi_so_leader.py:42-52).
+                    if "use_degrees" in sub:
+                        problems.append(f"{where}.use_degrees is ignored: bi_so_leader always "
+                                        "reads degrees (bi_so_leader.py:42-52).")  # fmt: skip
+                    if "cameras" in sub:
+                        problems.append(f"{where}.cameras: a leader has no cameras in "
+                                        "LeRobot (config_so_leader.py:24-27); put them under "
+                                        "robot.")  # fmt: skip
+                    opts: tuple[tuple[str, Any], ...] = ()
+                    deg = True
+                else:
+                    opts = options(sub, role, where)
+                    deg = _scalar(sub.get("use_degrees")) is not False
+                    add_cameras(f"{where}.cameras", sub.get("cameras"), side)
                 arms.append(ArmSpec(
                     key=f"{side}_{role}", role=role, side=side,
                     lerobot_id=f"{rid}_{side}" if rid else None,  # bi_so_follower.py:56, 66
-                    port=_scalar(port_node), port_line=_line(port_node), section=section, type=typ,
-                    single_type=single_type, calibration_dir=cal_dir, use_degrees=deg,
-                    max_relative_target=_scalar(sub.get("max_relative_target")),
+                    port=_text(_scalar(port_node)), port_line=_line(port_node), section=section,
+                    type=typ, single_type=single_type, calibration_dir=cal_dir, use_degrees=deg,
+                    max_relative_target=dict(opts).get("max_relative_target"), options=opts,
                 ))  # fmt: skip
-                for key, cam in _fields(sub.get("cameras")).items():
-                    cams.append(CameraSpec(key, side, _scalar(cam) or {}))
         else:
             if typ and typ not in single:
                 problems.append(
@@ -196,24 +297,31 @@ def parse(text: str) -> RigSpec:
                     f"({', '.join(single + bi)})."
                 )
             port_node = f.get("port")
+            opts = options(f, role, section)
             arms.append(ArmSpec(
-                key=role, role=role, side=None, lerobot_id=rid, port=_scalar(port_node),
+                key=role, role=role, side=None, lerobot_id=rid, port=_text(_scalar(port_node)),
                 port_line=_line(port_node), section=section, type=typ or single[0],
                 single_type=typ if typ in single else single[0], calibration_dir=cal_dir,
                 use_degrees=_scalar(f.get("use_degrees")) is not False,
-                max_relative_target=_scalar(f.get("max_relative_target")),
+                max_relative_target=dict(opts).get("max_relative_target"), options=opts,
             ))  # fmt: skip
+            if role == "leader" and "cameras" in f:
+                problems.append("teleop.cameras: a leader has no cameras in LeRobot "
+                                "(config_so_leader.py:24-27); put them under robot.")  # fmt: skip
         if role == "follower":
-            for key, cam in _fields(f.get("cameras")).items():
-                cams.append(CameraSpec(key, None, _scalar(cam) or {}))
+            add_cameras(f"{section}.cameras", f.get("cameras"), None)
         if rid is None:
             problems.append(
                 f"{section} has no id. LeRobot would save its calibration as None.json."
             )
     # Studio's own top-level cameras: block, for configs that keep cameras outside robot:.
     if not any(c.side is None for c in cams):
-        for key, cam in _fields(root.get("cameras")).items():
-            cams.append(CameraSpec(key, None, _scalar(cam) or {}))
+        add_cameras("cameras", root.get("cameras"), None)
+    top = {c.key for c in cams if c.side is None}
+    clash = sorted(top & {c.key for c in cams if c.side})
+    if clash:
+        problems.append(f"Camera names {', '.join(clash)} are used both at the top and on an arm; "
+                        "bi_so_follower refuses that (bi_so_follower.py:46-52).")  # fmt: skip
     sides = {a.side for a in arms}
     if None in sides and len(sides) > 1:
         problems.append(
@@ -227,16 +335,30 @@ def parse(text: str) -> RigSpec:
 # -- commands ------------------------------------------------------------------------------------
 
 
+def _cli_value(v: Any) -> str:
+    """A value as draccus reads it from the command line: JSON for mappings, lowercase bools."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, separators=(",", ":"))
+    return str(v)
+
+
 def _device_args(prefix: str, arms: list[ArmSpec], sec: dict[str, Any]) -> list[str]:
-    """--robot.* or --teleop.* flags for one section, as LeRobot's draccus parser takes them."""
+    """--robot.* or --teleop.* flags for one section, as LeRobot's draccus parser takes them:
+    type, ports, id, calibration_dir, and each arm's options (step limit, units, torque on exit).
+    WHY every option: a step limit in robot-config.yaml that the command leaves out is a step
+    limit LeRobot never applies."""
     a0 = arms[0]
     args = [f"--{prefix}.type={LEGACY_BI.get(a0.type, a0.type)}"]
-    if a0.side:
-        args += [f"--{prefix}.{a.side}_arm_config.port={a.port or '<port>'}" for a in arms]
-    else:
-        args.append(f"--{prefix}.port={a0.port or '<port>'}")
-    if sec.get("id"):
-        args.append(f"--{prefix}.id={sec['id']}")
+    for a in arms:
+        at = f"{prefix}.{a.side}_arm_config" if a.side else prefix
+        args.append(f"--{at}.port={a.port or '<port>'}")
+        args += [f"--{at}.{k}={_cli_value(v)}" for k, v in a.options if v is not None]
+    if a0.lerobot_id:
+        args.append(f"--{prefix}.id={_text(sec.get('id'))}")
+    if a0.calibration_dir:
+        args.append(f"--{prefix}.calibration_dir={a0.calibration_dir}")
     return args
 
 
@@ -244,17 +366,16 @@ def _cameras_args(spec: RigSpec) -> list[str]:
     """--robot.cameras, plus --robot.<side>_arm_config.cameras for a bimanual arm's own cameras."""
     out = []
     for side in (None, *SIDES):
-        cams = {c.key: c.fields for c in spec.cameras if c.side == side and _usable(c.fields)}
+        cams = {c.key: c.lerobot_fields() for c in spec.cameras if c.side == side and _usable(c)}
         if cams:
             flag = f"--robot.{side}_arm_config.cameras" if side else "--robot.cameras"
             out.append(f"{flag}={json.dumps(cams, separators=(',', ':'))}")
     return out
 
 
-def _usable(cam: dict[str, Any]) -> bool:
-    """A camera LeRobot can open: an opencv index or path that is filled in, not a placeholder."""
-    idx = cam.get("index_or_path")
-    return cam.get("type") == "opencv" and idx not in (None, "", "TBD")
+def _usable(cam: CameraSpec) -> bool:
+    """A camera LeRobot can open: a known type with its device filled in, not a placeholder."""
+    return cam.source is not None
 
 
 def _cmd(id_: str, title: str, why: str, tool: str, args: Sequence[str] = ()) -> dict[str, str]:

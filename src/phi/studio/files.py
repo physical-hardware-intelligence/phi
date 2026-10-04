@@ -248,14 +248,20 @@ class Files:
                              "max_relative_target": a.max_relative_target})  # fmt: skip
             return {"file": ref, "bimanual": spec.bimanual, "arms": arms,
                     "cameras": [{"key": c.key, "side": c.side, "feature": c.feature,
-                                 "index": c.fields.get("index_or_path")} for c in spec.cameras],
+                                 "type": c.fields.get("type"), "source": c.source}
+                                for c in spec.cameras],
                     "features": spec.action_features(), "problems": list(spec.problems),
                     "commands": spec.commands()}  # fmt: skip
         return None
 
     def index(self) -> dict[str, Any]:
+        try:
+            lr = self.lerobot()
+        except Exception as e:  # WHY broad: a config Studio misreads must not blank the Files page
+            lr = {"file": {"root": None, "path": "robot-config.yaml"},
+                  "error": f"Studio could not read it: {type(e).__name__}: {e}"}  # fmt: skip
         return {"roots": [r.public() for r in self.roots.values()], "notes": self.notes(),
-                "calibrations": self.calibrations(), "lerobot": self.lerobot()}  # fmt: skip
+                "calibrations": self.calibrations(), "lerobot": lr}  # fmt: skip
 
 
 def list_ports(identity: list[dict[str, Any]]) -> dict[str, Any]:

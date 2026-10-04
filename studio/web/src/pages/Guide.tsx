@@ -161,8 +161,13 @@ function Rig() {
             At "set the middle", put every joint mid-range, and Wrist Roll at the centre of the range you will use with
             the gripper level. Wrist Roll has no stops: you get 180° either way from that pose and no more.
           </> },
-        { title: "Fill in the camera indices", to: "checks", open: "Checks", body: <>
-            Each camera in <Id>robot-config.yaml</Id> needs its <Id>index_or_path</Id>. Checks flags any still set to TBD.
+        { title: "Set a step limit", to: "setup", open: "LeRobot setup", body: <>
+            Without <Id>max_relative_target</Id> LeRobot sends every goal to the follower as it is. Set one number, or
+            all six joints by name, each above 0; the commands on the LeRobot setup page pass it on.
+          </> },
+        { title: "Fill in the camera devices", to: "checks", open: "Checks", body: <>
+            Each camera in <Id>robot-config.yaml</Id> needs its device: <Id>index_or_path</Id> for an opencv camera,{" "}
+            <Id>serial_number_or_name</Id> for a RealSense. Checks flags any still set to TBD.
           </> },
       ]} />
     </Section>
@@ -330,7 +335,7 @@ function Trouble() {
 
 function Where() {
   const rows: [ReactNode, string][] = [
-    [<Id key="r">robot-config.yaml</Id>, "Ports, ids and cameras for this Mac, in the main checkout. Git ignores it."],
+    [<Id key="r">robot-config.yaml</Id>, "Ports, ids and cameras for this Mac, in the main checkout. The repo's .gitignore does not list it, so keep it out of commits."],
     [<Id key="c">~/.cache/huggingface/lerobot/calibration</Id>, "LeRobot's calibration files, one per arm id ($HF_LEROBOT_CALIBRATION moves it)."],
     [<Id key="d">~/.cache/phi/studio</Id>, "Studio's data: evals, and the mock rig's calibrations. --data-dir moves it."],
     ["Not saved", "Telemetry, the activity list and Claude chats live in memory only."],

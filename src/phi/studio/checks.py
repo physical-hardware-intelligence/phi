@@ -268,34 +268,45 @@ def check_step_limit(inp: Inputs) -> dict[str, Any]:
         return result(
             "step_limit", "This Mac", title, "skip", "Needs a robot in robot-config.yaml."
         )
-    off = [a for a in followers if a.max_relative_target in (None, "", 0)]
+    where = lambda a: f"robot.{a.side}_arm_config" if a.side else "robot"  # noqa: E731
+    issues = [(a, rigspec.step_limit_issue(a.max_relative_target)) for a in followers]
+    wrong = [(a, why) for a, why in issues if why]
+    if wrong:
+        a, why = wrong[0]
+        return result("step_limit", "This Mac", title, "fail",
+                      f"{label(a.key)}: max_relative_target {why}.",
+                      f"Fix {where(a)}.max_relative_target in robot-config.yaml: one number, or "
+                      f"all six of {', '.join(JOINTS)}, each above 0.", ref)  # fmt: skip
+    off = [a for a in followers if a.max_relative_target is None]
     if off:
-        where = (
-            "left_arm_config.max_relative_target" if off[0].side else "robot.max_relative_target"
-        )
         return result("step_limit", "This Mac", title, "warn",
                       f"No max_relative_target on {', '.join(label(a.key) for a in off)}: LeRobot "
                       "sends every goal as it is (so_follower.py:221-232).",
-                      f"Set {where} in robot-config.yaml and pass it to LeRobot, for example 10. "
-                      "Studio's own teleop clips each step either way.", ref)  # fmt: skip
+                      f"Set {where(off[0])}.max_relative_target in robot-config.yaml, for example "
+                      "10. The commands on the LeRobot setup page pass it on. Studio's own teleop "
+                      "clips each step either way.", ref)  # fmt: skip
     caps = ", ".join(f"{label(a.key)} {a.max_relative_target}" for a in followers)
     return result("step_limit", "This Mac", title, "pass", f"max_relative_target: {caps}")
 
 
 def check_camera_config(inp: Inputs) -> dict[str, Any]:
-    title = "Camera indices are filled in"
+    title = "Camera devices are filled in"
     ref, spec = _spec(inp)
     if spec is None or not spec.cameras:
         return result(
             "camera_config", "This Mac", title, "skip", "No cameras in robot-config.yaml."
         )
-    todo = [c for c in spec.cameras if c.fields.get("index_or_path") in (None, "", "TBD")]
+    todo = [c for c in spec.cameras if c.source is None]
     if todo:
+        # WHY by type: an opencv camera is picked by index_or_path, a RealSense by its serial
+        # (configuration_opencv.py:61, configuration_realsense.py:58).
+        kinds = sorted({str(c.fields.get("type")) for c in todo} & set(rigspec.CAMERA_SOURCE))
+        how = "; ".join(f"lerobot-find-cameras {k} lists them, then fill in "
+                        f"{rigspec.CAMERA_SOURCE[k]}" for k in kinds)  # fmt: skip
         return result("camera_config", "This Mac", title, "warn",
-                      f"No index for {', '.join(label(c.key) for c in todo)}, so LeRobot cannot "
-                      "open "
-                      "them. macOS can renumber cameras between sessions.",
-                      "Run lerobot-find-cameras opencv and fill in index_or_path for each camera.",
+                      f"No device for {', '.join(label(c.key) for c in todo)}, so LeRobot cannot "
+                      "open them. macOS can renumber cameras between sessions.",
+                      f"{how or 'Set type to opencv or intelrealsense'} in robot-config.yaml.",
                       ref)  # fmt: skip
     keys = ", ".join(c.feature for c in spec.cameras)
     return result("camera_config", "This Mac", title, "pass", f"Dataset keys: {keys}")
@@ -441,7 +452,7 @@ def _cal_targets(inp: Inputs, arms: list[ConfigArm]) -> dict[tuple[str, str | No
             if a.get("expected"):
                 out.setdefault((a["expected"], ROLE_KIND.get(a.get("role", ""))), None)
     for c in arms:
-        exact = Path(c.cal_dir).expanduser() / f"{c.id}.json" if c.cal_dir else None
+        exact = Path(c.cal_dir) / f"{c.id}.json" if c.cal_dir else None  # as LeRobot reads it
         out.setdefault((c.id, c.kind), exact)
     return out
 
@@ -459,7 +470,7 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
             "skip",
             "No arm ids yet. Connect the rig or add robot-config.yaml.",
         )
-    if not dirs:
+    if not dirs and not any(targets.values()):  # an exact file can sit outside every folder
         return result(
             "calibrations",
             "This Mac",
@@ -478,7 +489,7 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
             if exact
             else [p for p in every if p.stem == i and (kind is None or kind in p.parts)]
         )
-        files = list(dict.fromkeys(files))
+        files = [f for f in dict.fromkeys(files) if f.is_file()]
         if not files:
             missing.append(f"{i} ({kind[:-1]})" if kind else i)
             continue
@@ -494,6 +505,7 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
                 stale.append((i, good[0], f))
             elif probs:
                 bad.append((i, probs, f))
+    exact_dirs = [p.parent for p in targets.values() if p]
     if missing:
         return result(
             "calibrations",
@@ -501,7 +513,7 @@ def check_calibrations(inp: Inputs) -> dict[str, Any]:
             title,
             "fail",
             f"No calibration file for {', '.join(missing)}. Looked in "
-            f"{', '.join(str(d) for d in dirs)}.",
+            f"{', '.join(str(d) for d in dict.fromkeys([*dirs, *exact_dirs]))}.",
             "Calibrate that arm on the Calibrate page, or check its id in robot-config.yaml.",
         )
     if bad:

@@ -464,6 +464,41 @@ def test_step_limit_warns_per_follower(tmp_path: Path) -> None:
     assert C.check_step_limit(mac(tmp_path / "b", config=capped))["status"] == "pass"
 
 
+def test_step_limit_lerobot_would_misuse_fails_with_the_arms_own_path(tmp_path: Path) -> None:
+    for i, cap in enumerate(("0", "{shoulder_pan: 5}", "-2")):
+        bi = BI.replace("max_relative_target: 10", f"max_relative_target: {cap}")
+        r = C.check_step_limit(mac(tmp_path / str(i), config=bi))
+        assert r["status"] == "fail" and r["detail"].startswith("Left Follower"), cap
+        assert "robot.left_arm_config.max_relative_target" in r["fix"]
+    r = C.check_step_limit(mac(tmp_path / "w", config=BI))
+    assert "Set robot.right_arm_config.max_relative_target" in r["fix"]
+
+
+def test_a_realsense_camera_is_picked_by_its_serial(tmp_path: Path) -> None:
+    cams = "cameras:\n  d: {type: intelrealsense, serial_number_or_name: TBD}\n"
+    r = C.check_camera_config(mac(tmp_path / "a", config=CONFIG + cams))
+    assert r["status"] == "warn" and "lerobot-find-cameras intelrealsense" in r["fix"]
+    assert "serial_number_or_name" in r["fix"]
+    ok = cams.replace("TBD", "'123'")
+    assert C.check_camera_config(mac(tmp_path / "b", config=CONFIG + ok))["status"] == "pass"
+
+
+def test_a_calibration_dir_file_is_found_without_a_calibration_folder(tmp_path: Path) -> None:
+    own = tmp_path / "own"
+    own.mkdir()
+    (own / "phi_follower.json").write_text(json.dumps(good_cal()))
+    config = CONFIG
+    for i in ("phi_follower", "phi_leader"):
+        config = config.replace(f"  id: {i}\n", f"  id: {i}\n  calibration_dir: {own}\n")
+    inp = mac(tmp_path / "m", config=config, cals={})
+    inp = Inputs(roots={"repo": inp.roots["repo"]}, ports=inp.ports)  # no calibration folder at all
+    r = C.check_calibrations(inp)
+    # WHY this shape: the follower's file is read and passes; the leader's is missing, not
+    # unreadable
+    assert r["status"] == "fail" and r["detail"].startswith("No calibration file for phi_leader")
+    assert str(own) in r["detail"]
+
+
 def test_camera_indices_must_be_filled_in(tmp_path: Path) -> None:
     cams = (
         "cameras:\n  front: {type: opencv, index_or_path: TBD}\n"

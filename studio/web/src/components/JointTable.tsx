@@ -56,7 +56,7 @@ export function JointTable() {
                   ];
                   if (a.role === "follower") {
                     cells.push(
-                      <td key="l" className={`num ${h && h.load > 80 ? "cell-warn" : ""}`} data-live>
+                      <td key="l" className={`num ${h && Math.abs(h.load) > 80 ? "cell-warn" : ""}`} data-live>
                         {h ? `${h.load.toFixed(0)}%` : ""}
                       </td>,
                       <td key="t" className={`num ${h && h.temp >= 60 ? "cell-warn" : ""}`} data-live>

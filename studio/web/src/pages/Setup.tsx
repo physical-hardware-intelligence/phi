@@ -153,12 +153,15 @@ function KeysPanel({ lr }: { lr: LeRobotView }) {
         {lr.cameras.length === 0 ? <p className="faint">No cameras in robot-config.yaml.</p> : (
           <ul className="setup-cams">
             {lr.cameras.map((c) => {
-              const idx = c.index === null || c.index === undefined || c.index === "" || c.index === "TBD" ? null : String(c.index);
+              // An opencv camera is picked by index or path, a RealSense by serial (rigspec.py CAMERA_SOURCE).
+              const what = c.type === "intelrealsense" ? "serial" : "index";
               return (
                 <li key={c.feature}>
                   <span className="strong">{label(c.side ? `${c.side}_${c.key}` : c.key)}</span>
                   <code className="ident">{c.feature}</code>
-                  {idx === null ? <span className="text-warn">index not set</span> : <span className="faint num">index {idx}</span>}
+                  {c.source === null || c.source === undefined
+                    ? <span className="text-warn">{what} not set</span>
+                    : <span className="faint num">{what} {String(c.source)}</span>}
                 </li>
               );
             })}
