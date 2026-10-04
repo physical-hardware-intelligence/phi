@@ -7,7 +7,9 @@ import asyncio
 import json
 import socket
 import struct
+import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -414,6 +416,87 @@ def test_evals_without_a_data_directory_say_so() -> None:
                                          "planned": 1, "limit_s": 5}))  # fmt: skip
             err = await until(a, lambda d: d["type"] == "error")
             assert "data directory" in err["message"]
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+# -- assistant and file view ---------------------------------------------------------------------
+FAKE_CLI = f"{sys.executable} {Path(__file__).parent / 'support' / 'fake_claude.py'}"
+
+
+async def started_with_code(tmp: Path) -> tuple[Studio, TestServer, aiohttp.ClientSession]:
+    code = tmp / "code"
+    code.mkdir()
+    (code / "robot-config.yaml").write_text("robot:\n  port: /dev/tty.usbmodem123\n")
+    (code / ".env").write_text("HF_TOKEN=hf_x\n")
+    port = free_port()
+    studio = Studio({"kind": "mock", "pairs": 1, "cameras": ["front"]}, port, token="t0k",
+                    data_dir=tmp / "data", code_root=code)  # fmt: skip
+    server = TestServer(studio.app(), host="127.0.0.1", port=port)
+    await server.start_server()
+    return studio, server, aiohttp.ClientSession()
+
+
+def test_any_window_can_read_files_but_not_secrets(tmp_path: Path, monkeypatch) -> None:
+    async def go() -> None:
+        studio, server, session = await started_with_code(tmp_path)
+        try:
+            a = await ws(session, server.port)  # takes control
+            b = await ws(session, server.port)  # view only
+            await until(b, lambda d: d["type"] == "hello" and not d["control"])
+            await b.send_str(json.dumps({"cmd": "files_index"}))
+            ix = await until(b, lambda d: d["type"] == "files")
+            assert [n["path"] for n in ix["notes"]] == ["robot-config.yaml"]
+            await b.send_str(json.dumps({"cmd": "file_read", "path": "robot-config.yaml"}))
+            f = await until(b, lambda d: d["type"] == "file")
+            assert "usbmodem123" in f["text"] and f["root"] == "code"
+            await b.send_str(json.dumps({"cmd": "file_read", "root": "code", "path": ".env"}))
+            err = await until(b, lambda d: d["type"] == "file_error")
+            assert "secrets" in err["message"]
+            await b.send_str(json.dumps({"cmd": "files_search", "query": "usbmodem"}))
+            res = await until(b, lambda d: d["type"] == "search")
+            assert [h["path"] for h in res["hits"]] == ["robot-config.yaml"]
+            await b.send_str(json.dumps({"cmd": "ports"}))
+            await until(b, lambda d: d["type"] == "ports")
+            await a.close()
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+def test_the_assistant_answers_only_the_window_that_asked(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("PHI_STUDIO_CLAUDE", FAKE_CLI)
+
+    async def go() -> None:
+        studio, server, session = await started_with_code(tmp_path)
+        try:
+            a = await ws(session, server.port)
+            b = await ws(session, server.port)
+            await until(b, lambda d: d["type"] == "hello")
+            await b.send_str(json.dumps({"cmd": "assist_status"}))
+            st = await until(b, lambda d: d["type"] == "assist_status")
+            assert st["available"]
+            await a.send_str(json.dumps({"cmd": "connect"}))  # gives the log a state change
+            await until(a, lambda d: d["type"] == "state" and d["state"] == "IDENTIFIED")
+            await b.send_str(json.dumps({"cmd": "assist_ask", "text": "what state?",
+                                         "page": "overview",
+                                         "focus": {"message": "boom"}}))  # fmt: skip
+            done = await until(b, lambda d: d["type"] == "assist" and d["kind"] == "done")
+            assert done["stopped"] is False
+            ctx = studio.context("overview", {"message": "boom"})
+            assert '"IDENTIFIED"' in ctx and '"boom"' in ctx and "t0k" not in ctx
+            assert '"robot-config.yaml"' not in ctx  # files are read on demand, not pushed
+            with pytest.raises(AssertionError):  # the other window heard nothing
+                await until(a, lambda d: d["type"] == "assist", timeout=0.5)
+            proc = next(c for c in studio.clients if c.conversation).conversation.proc
+            await b.close()
+            await asyncio.wait_for(proc.wait(), 5)  # closing the window ends its Claude process
+            await a.close()
         finally:
             await session.close()
             await server.close()

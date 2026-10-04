@@ -36,6 +36,9 @@ def studio(
     data_dir: str = typer.Option(
         str(STUDIO_DATA), help="Where Studio keeps eval records and mock calibrations."
     ),
+    assistant_model: str = typer.Option(
+        "", help="Model for the Claude assistant, such as sonnet or opus. Empty: Claude's default."
+    ),
 ) -> None:
     """Phi Studio: set up, calibrate, teleoperate, record, and run policies from a local web app."""
     if not mock:
@@ -45,7 +48,7 @@ def studio(
 
     try:
         serve({"kind": "mock", "pairs": pairs}, port=port, open_browser=browser,
-              data_dir=Path(data_dir).expanduser())
+              data_dir=Path(data_dir).expanduser(), assistant_model=assistant_model or None)
     except PortInUse as e:
         typer.echo(f"{e} Close it, or run with --port {e.port + 1}.", err=True)
         raise typer.Exit(1) from None

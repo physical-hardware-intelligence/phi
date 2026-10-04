@@ -10,6 +10,9 @@ Security, because this socket can move motors:
 Evals live here, not in the worker: judging an episode moves nothing, and the record must survive a
 worker crash. Every judgement is on disk before the windows hear about it.
 
+The assistant (Claude) and the file view live here too, read-only. Neither has a path to the worker,
+so neither can move an arm; any window may use them.
+
 Control: one window holds control; any window may Stop. Control changing hands stops the rig:
 closing or reloading the controlling window, or another window taking control, sends Stop at
 once. The worker's heartbeat timeout is the backstop for a window that hangs without closing.
@@ -25,12 +28,16 @@ import secrets
 import socket
 import struct
 import threading
+import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
 from aiohttp import WSMsgType, web
 
+from phi.studio.assistant import ClaudeCLI, Conversation
 from phi.studio.evals import EvalError, EvalStore
+from phi.studio.files import FileError, Files, default_roots, list_ports
 
 STATIC = Path(__file__).parent / "static"
 COMMANDS = {"heartbeat", "connect", "identify", "confirm", "arm", "start", "stop", "resume",
@@ -38,6 +45,11 @@ COMMANDS = {"heartbeat", "connect", "identify", "confirm", "arm", "start", "stop
             "cal_start", "cal_middle", "cal_finish", "cal_save", "cal_cancel"}  # fmt: skip
 EVAL_COMMANDS = {"eval_begin", "eval_mark", "eval_undo", "eval_end"}  # answered by the server
 ANYONE = {"stop", "take_control"}  # allowed from a window without control
+# Answered by the server, from any window: they read, and none reaches the worker.
+READ_ONLY = {"assist_status", "assist_ask", "assist_stop", "assist_reset", "files_index",
+             "file_read", "files_search", "ports"}  # fmt: skip
+CODE_ROOT = Path(__file__).resolve().parents[3]  # src/phi/studio/server.py -> the repo
+LOG_SIZE = 200
 REPLAYED = ("rig", "state", "identity", "worker_exit")  # newest of each, sent to a new window
 
 
@@ -57,6 +69,7 @@ class Client:
         self.telemetry: dict[str, Any] | None = None
         self.frames: dict[str, dict[str, Any]] = {}
         self.wake = asyncio.Event()
+        self.conversation: Conversation | None = None
 
     def push(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
@@ -90,6 +103,8 @@ class Studio:
         port: int,
         token: str | None = None,
         data_dir: Path | str | None = None,
+        assistant_model: str | None = None,
+        code_root: Path | None = None,
     ) -> None:
         self.spec = {**spec, "data_dir": str(data_dir)} if data_dir else dict(spec)
         self.port = port
@@ -104,6 +119,12 @@ class Studio:
             str, dict[str, Any]
         ] = {}  # newest state / identity, replayed to new windows
         self.run: dict[str, Any] | None = None  # telemetry's policy view, set by the reader thread
+        self.telemetry: dict[str, Any] | None = None  # newest, for the assistant's context
+        self.log: deque[dict[str, Any]] = deque(maxlen=LOG_SIZE)  # state changes and errors
+        roots = default_roots(code_root or CODE_ROOT, self.data_dir)
+        self.files = Files(roots)
+        self.cli = ClaudeCLI(cwd=roots[0].path, dirs=[r.path for r in roots[1:]],
+                             model=assistant_model)  # fmt: skip
         self.loop: asyncio.AbstractEventLoop | None = None
         self.proc: Any = None
         self.conn: Any = None
@@ -134,12 +155,34 @@ class Studio:
             self._dispatch(msg)
 
     def _dispatch(self, msg: dict[str, Any]) -> None:
-        if msg.get("type") in REPLAYED:
-            self.last[msg["type"]] = msg
-        elif msg.get("type") == "telemetry":
+        kind = msg.get("type")
+        if kind in REPLAYED:
+            self.last[kind] = msg
+        if kind == "telemetry":
+            self.telemetry = msg
             self.run = msg.get("policy")  # the newest policy run: the only one an eval can judge
+        elif kind == "state":
+            why = msg.get("fault") or msg.get("stop_reason")
+            self._note("state", f"{msg.get('label')}" + (f": {why}" if why else ""))
+        elif kind == "error":
+            self._note("error", msg.get("message", ""), msg.get("fix"))
+        elif kind == "calibrated":
+            self._note("calibrated", f"Saved calibration for {msg.get('arm')}")
+        elif kind == "worker_exit":
+            self._note("error", msg.get("message", ""), None)
         if self.loop is not None:
             self.loop.call_soon_threadsafe(self._fanout, msg)
+
+    def _note(self, kind: str, text: str, fix: str | None = None) -> None:
+        """One line of the log the assistant sees. Called from the reader thread and the loop;
+        deque.append is atomic."""
+        self.log.append({"t": round(time.time(), 1), "kind": kind, "text": text[:500],
+                         "fix": (fix or None) and fix[:500]})  # fmt: skip
+
+    def _tell(self, client: Client, message: str, fix: str = "") -> None:
+        """An error for one window, logged so the assistant sees it too."""
+        self._note("error", message, fix)
+        client.push({"type": "error", "message": message, "fix": fix})
 
     def _fanout(self, msg: dict[str, Any]) -> None:
         for c in list(self.clients):
@@ -235,6 +278,8 @@ class Studio:
                 for other in self.clients:
                     other.push({"type": "control", "available": True})
             sender.cancel()
+            if client.conversation is not None:
+                await client.conversation.aclose()
         return ws
 
     def _from_client(self, client: Client, data: str) -> None:
@@ -244,7 +289,7 @@ class Studio:
         except (ValueError, KeyError, TypeError):
             cmd = None
         if not isinstance(cmd, str):
-            client.push({"type": "error", "message": "malformed message", "fix": ""})
+            self._tell(client, "malformed message")
             return
         if cmd == "take_control":
             if self.controller is not None and self.controller is not client:
@@ -253,21 +298,24 @@ class Studio:
             self.controller = client
             client.push({"type": "control", "control": True})
             return
+        if cmd in READ_ONLY:
+            asyncio.get_running_loop().create_task(self._read_only(client, cmd, msg))
+            return
         if cmd not in COMMANDS and cmd not in EVAL_COMMANDS:
-            client.push({"type": "error", "message": f"unknown command {cmd!r}", "fix": ""})
+            self._tell(client, f"unknown command {cmd!r}")
             return
         if client is not self.controller and cmd not in ANYONE:
             if cmd != "heartbeat":
-                client.push({"type": "error", "message": "Another window has control.",
-                             "fix": "Take control to operate the rig here."})  # fmt: skip
+                self._tell(client, "Another window has control.",
+                           "Take control to operate the rig here.")  # fmt: skip
             return
         if cmd in EVAL_COMMANDS:
             self._eval(client, cmd, msg)
             return
         if cmd == "start" and msg.get("activity") == "policy" and self._unjudged():
             # A new run replaces the last one, and the unjudged episode could never be judged.
-            client.push({"type": "error", "message": "The last eval episode is not judged yet.",
-                         "fix": "Judge it on the Evaluate page, or end the eval."})  # fmt: skip
+            self._tell(client, "The last eval episode is not judged yet.",
+                       "Judge it on the Evaluate page, or end the eval.")  # fmt: skip
             return
         self.to_worker({k: v for k, v in msg.items() if isinstance(k, str)})
 
@@ -282,8 +330,7 @@ class Studio:
 
     def _eval(self, client: Client, cmd: str, msg: dict[str, Any]) -> None:
         if self.evals is None:
-            client.push({"type": "error", "message": "Evals need a data directory.",
-                         "fix": "Start Studio with --data-dir."})  # fmt: skip
+            self._tell(client, "Evals need a data directory.", "Start Studio with --data-dir.")
             return
         e = self.evals
         try:
@@ -297,13 +344,80 @@ class Studio:
             else:
                 e.end()
         except EvalError as err:
-            client.push({"type": "error", "message": str(err), "fix": ""})
+            self._tell(client, str(err))
             return
         except OSError as err:  # the judgement is not saved, so do not show it as saved
-            client.push({"type": "error", "message": f"Could not save the eval: {err}",
-                         "fix": f"Check that {e.dir} is writable."})  # fmt: skip
+            self._tell(client, f"Could not save the eval: {err}", f"Check {e.dir} is writable.")
             return
         self._fanout(self._eval_msg())
+
+    # -- assistant and files ----------------------------------------------------------------------
+    async def _read_only(self, client: Client, cmd: str, msg: dict[str, Any]) -> None:
+        try:
+            if cmd == "assist_status":
+                client.push({"type": "assist_status", **(await self.cli.status())})
+            elif cmd == "assist_ask":
+                if client.conversation is None:
+                    client.conversation = Conversation(self.cli, client.push)
+                ctx = self.context(msg.get("page"), msg.get("focus"))
+                await client.conversation.ask(msg.get("text"), ctx)
+            elif cmd == "assist_stop" and client.conversation is not None:
+                client.conversation.stop()
+            elif cmd == "assist_reset" and client.conversation is not None:
+                client.conversation.reset()
+            elif cmd == "files_index":
+                client.push({"type": "files", **self.files.index()})
+            elif cmd == "file_read":
+                loc = self.files.locate(msg.get("path")) if msg.get("root") is None else None
+                root, path = loc if loc else (msg.get("root"), msg.get("path"))
+                got = await asyncio.to_thread(self.files.read, root, path)
+                client.push({"type": "file", **got, "line": msg.get("line")})
+            elif cmd == "files_search":
+                got = await asyncio.to_thread(self.files.search, msg.get("query"))
+                client.push({"type": "search", **got})
+            elif cmd == "ports":
+                ident = self.last.get("identity", {}).get("arms", [])
+                client.push({"type": "ports", **(await asyncio.to_thread(list_ports, ident))})
+        except FileError as e:
+            client.push({"type": "file_error", "message": str(e), "path": msg.get("path")})
+        except OSError as e:
+            client.push({"type": "file_error", "message": f"Could not read it: {e}",
+                         "path": msg.get("path")})  # fmt: skip
+
+    def context(self, page: Any = None, focus: Any = None) -> str:
+        """What Studio sees right now, as text for the assistant. Never the token."""
+        t = self.telemetry or {}
+        arms = {}
+        for name, a in (t.get("arms") or {}).items():
+            h = a.get("health") or {}
+            arms[name] = {"role": a.get("role"), "online": a.get("online"),
+                          "torque": a.get("torque"),
+                          "max_temp_c": max((x["temp"] for x in h.values()), default=None),
+                          "max_load_pct": max((x["load"] for x in h.values()), default=None),
+                          "min_volt": min((x["volt"] for x in h.values()), default=None),
+                          "faults": {j: x["faults"] for j, x in h.items() if x["faults"]},
+                          "position_deg": a.get("pos")}  # fmt: skip
+        cur = self.evals.current if self.evals else None
+        ev = cur and {**{k: v for k, v in cur.items() if k != "episodes"},
+                      "last_episodes": cur["episodes"][-5:]}  # fmt: skip
+        ctx = {
+            "now": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "page": page if isinstance(page, str) else None,
+            "asked_about": focus if isinstance(focus, dict) else None,
+            "rig_kind": self.spec.get("kind", "mock"),
+            "folders": [r.public() for r in self.files.roots.values()],
+            "session": {k: v for k, v in self.last.get("state", {}).items() if k != "type"},
+            "rig": {k: v for k, v in self.last.get("rig", {}).items() if k != "type"},
+            "identity": self.last.get("identity", {}).get("arms", []),
+            "arms": arms,
+            "loop": t.get("loop"),
+            "calibration_in_progress": t.get("calibration"),
+            "policy_run": t.get("policy"),
+            "eval": ev,
+            "log": list(self.log)[-40:],
+        }
+        text = json.dumps(ctx, indent=1, default=str)
+        return text.replace(self.token, "[token]")  # WHY: belt and braces; it should never be there
 
 
 class PortInUse(RuntimeError):
@@ -329,12 +443,14 @@ def serve(
     port: int = 8765,
     open_browser: bool = True,
     data_dir: Path | None = None,
+    assistant_model: str | None = None,
 ) -> None:
     if not port_free(port):  # before printing a URL or opening a browser at the wrong server
         raise PortInUse(port)
     # WHY an env override: a fixed token lets a dev preview reload with the same URL.
     # The default is a fresh random token per launch.
-    studio = Studio(spec, port, token=os.environ.get("PHI_STUDIO_TOKEN") or None, data_dir=data_dir)
+    token = os.environ.get("PHI_STUDIO_TOKEN") or None
+    studio = Studio(spec, port, token=token, data_dir=data_dir, assistant_model=assistant_model)
     url = f"http://127.0.0.1:{port}/#token={studio.token}"
     print(f"Phi Studio on {url}\nCtrl+C stops Studio and releases torque.", flush=True)
     if open_browser:
