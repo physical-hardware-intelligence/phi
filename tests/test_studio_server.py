@@ -295,3 +295,82 @@ def test_a_busy_port_is_a_one_line_message_not_a_traceback() -> None:
     assert r.exit_code == 1
     assert f"Port {port} is in use" in r.output and "--port" in r.output
     assert "Traceback" not in r.output
+
+
+async def started_with_data(tmp: Any) -> tuple[Studio, TestServer, aiohttp.ClientSession]:
+    port = free_port()
+    studio = Studio({"kind": "mock", "pairs": 1, "cameras": ["front"]}, port, token="t0k",
+                    data_dir=tmp)  # fmt: skip
+    server = TestServer(studio.app(), host="127.0.0.1", port=port)
+    await server.start_server()
+    return studio, server, aiohttp.ClientSession()
+
+
+def test_the_rig_description_reaches_every_window(tmp_path: Any) -> None:
+    async def go() -> None:
+        studio, server, session = await started_with_data(tmp_path)
+        try:
+            a = await ws(session, server.port)
+            rig = await until(a, lambda d: d["type"] == "rig")
+            assert any(p["id"] == "mock-reach" and p["available"] for p in rig["policies"])
+            b = await ws(session, server.port)  # a window opened later gets it replayed
+            await until(b, lambda d: d["type"] == "rig")
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+def test_evals_are_kept_by_the_server_saved_and_shown_to_every_window(tmp_path: Any) -> None:
+    async def go() -> None:
+        studio, server, session = await started_with_data(tmp_path)
+        try:
+            a = await ws(session, server.port)
+            await until(a, lambda d: d["type"] == "hello")
+            await a.send_str(json.dumps({"cmd": "eval_begin", "policy": "mock-reach",
+                                         "task": "cube in box", "planned": 2,
+                                         "limit_s": 10}))  # fmt: skip
+            ev = await until(a, lambda d: d["type"] == "eval" and d["current"] is not None)
+            rid = ev["current"]["id"]
+            await a.send_str(json.dumps({"cmd": "eval_mark", "outcome": "success", "note": "ok",
+                                         "duration_s": 3.2}))  # fmt: skip
+            ev = await until(a, lambda d: d["type"] == "eval" and d["current"]["n"] == 1)
+            assert ev["current"]["ci95"][1] == 1.0
+            assert (tmp_path / "evals" / f"{rid}.json").exists()
+
+            b = await ws(session, server.port)  # view-only window
+            ev_b = await until(b, lambda d: d["type"] == "eval")
+            assert ev_b["current"]["id"] == rid
+            await b.send_str(json.dumps({"cmd": "eval_mark", "outcome": "failure"}))
+            err = await until(b, lambda d: d["type"] == "error")
+            assert "control" in err["message"]
+
+            await a.send_str(json.dumps({"cmd": "eval_mark", "outcome": "maybe"}))
+            err = await until(a, lambda d: d["type"] == "error")
+            assert "success" in err["message"]
+            await a.send_str(json.dumps({"cmd": "eval_end"}))
+            ev = await until(a, lambda d: d["type"] == "eval" and d["current"] is None)
+            assert ev["past"][0]["id"] == rid and ev["past"][0]["n"] == 1
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())
+
+
+def test_evals_without_a_data_directory_say_so() -> None:
+    async def go() -> None:
+        studio, server, session = await started()
+        try:
+            a = await ws(session, server.port)
+            await until(a, lambda d: d["type"] == "hello")
+            await a.send_str(json.dumps({"cmd": "eval_begin", "policy": "p", "task": "t",
+                                         "planned": 1, "limit_s": 5}))  # fmt: skip
+            err = await until(a, lambda d: d["type"] == "error")
+            assert "data directory" in err["message"]
+        finally:
+            await session.close()
+            await server.close()
+
+    run(go())

@@ -13,6 +13,10 @@ Rules it enforces, whatever the UI sends:
   * any bus error or servo fault bit freezes every reachable follower and faults the session, and
     so does any error the worker did not expect: a bug must stop the rig, not kill the worker
   * a fault clears only with torque off, since clearing re-checks every arm's identity
+  * calibration runs only with every arm's torque off, never on an arm whose cable is swapped, and
+    restores the old registers if it ends any way other than Save
+  * a policy drives followers only while MOVING, through the same clip as teleop, and stops itself
+    at its time limit
 """
 
 from __future__ import annotations
@@ -21,9 +25,12 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from phi.studio.identity import Calibration, match_fingerprint
+from phi.studio.identity import Calibration, JointCal, match_fingerprint, save_calibration
+from phi.studio.policy import Policy, PolicyInfo, catalog, is_finite_number
 from phi.studio.rig import BUS_ERRORS, JOINTS, ArmBus, JointHealth
 from phi.studio.session import IllegalTransition, Session, State
 
@@ -35,6 +42,62 @@ from phi.studio.session import IllegalTransition, Session, State
 DEFAULT_MAX_STEP = {j: 8.0 for j in JOINTS} | {"gripper": 5.0}
 HEARTBEAT_TIMEOUT_S = 1.0  # Franka stops a hold-to-run link silent for over 1 s (research/02)
 STOP_REASONS = {"user", "window closed", "control moved"}  # what a stop message may claim
+# LeRobot records no range for wrist_roll and fixes it at 0..4095 (so_follower.py:135-143).
+FULL_TURN = "wrist_roll"
+FULL_RANGE = (0, 4095)
+POLICY_LIMIT_S = (1.0, 600.0)
+
+
+@dataclass
+class CalRun:
+    """One arm's calibration in progress: middle -> ranges -> review, then save or cancel."""
+
+    arm: ArmBus
+    old: Calibration  # registers before calibration, written back on cancel
+    step: str = "middle"
+    written: bool = False  # the servo's registers have changed
+    homings: dict[str, int] = field(default_factory=dict)
+    pos: dict[str, int] = field(default_factory=dict)
+    mins: dict[str, int] = field(default_factory=dict)
+    maxes: dict[str, int] = field(default_factory=dict)
+    new: Calibration | None = None
+
+    def view(self) -> dict[str, Any]:
+        joints = {}
+        for j in self.pos:
+            lo, hi = FULL_RANGE if j == FULL_TURN else (self.mins[j], self.maxes[j])
+            joints[j] = {"min": lo, "pos": self.pos[j], "max": hi, "fixed": j == FULL_TURN}
+        return {"arm": self.arm.name, "role": self.arm.role, "step": self.step, "joints": joints,
+                "old": {j: c._asdict() for j, c in self.old.items()},
+                "new": ({j: c._asdict() for j, c in self.new.items()}
+                        if self.new else None)}  # fmt: skip
+
+
+@dataclass
+class PolicyRun:
+    info: PolicyInfo
+    policy: Policy
+    task: str
+    limit_s: float
+    t0: float
+    queue: deque[dict[str, dict[str, float]]] = field(default_factory=deque)
+    step: int = 0
+    episode_s: float = 0.0
+    chunk_ms: deque[float] = field(default_factory=lambda: deque(maxlen=100))
+    action: dict[str, dict[str, float]] = field(default_factory=dict)
+    running: bool = True
+    ended: str | None = None
+
+    def view(self) -> dict[str, Any]:
+        ms = sorted(self.chunk_ms)
+        return {"id": self.info.id, "name": self.info.name, "task": self.task,
+                "limit_s": self.limit_s, "episode_s": round(self.episode_s, 2), "step": self.step,
+                "chunk": self.policy.chunk, "running": self.running, "ended": self.ended,
+                "chunk_ms": round(self.chunk_ms[-1], 3) if ms else 0.0,
+                "chunk_ms_p50": round(ms[len(ms) // 2], 3) if ms else 0.0,
+                "chunk_ms_max": round(ms[-1], 3) if ms else 0.0,
+                "action": {f: {j: round(v, 2) for j, v in g.items()}
+                           for f, g in self.action.items()}}  # fmt: skip
 
 
 def pair_arms(arms: list[ArmBus]) -> list[tuple[ArmBus, ArmBus]]:
@@ -72,6 +135,8 @@ class RigWorker:
         loop_hz: float = 30.0,
         calibrations: dict[str, Calibration] | None = None,
         health_every: int = 10,
+        cal_dir: Path | None = None,
+        policies: list[PolicyInfo] | None = None,
     ) -> None:
         self.rig, self.send, self.clock, self.loop_hz = rig, send, clock, loop_hz
         self.arms: list[ArmBus] = list(rig.arms)
@@ -80,7 +145,13 @@ class RigWorker:
         self.calibrations = calibrations if calibrations is not None else rig.calibration_files()
         self.health_every = health_every
         self.max_step = dict(DEFAULT_MAX_STEP)
-        self.session = Session(on_change=lambda s: self.send({"type": "state", **s.snapshot()}))
+        self.cal_dir = cal_dir
+        self.mock = all(hasattr(a, "inject") for a in self.arms)
+        found = policies if policies is not None else catalog(self.mock)
+        self.policies = {p.id: p for p in found}
+        self.cal: CalRun | None = None
+        self.run: PolicyRun | None = None
+        self.session = Session(on_change=self._on_state)
         self.last_heartbeat = clock()
         self.dead: set[str] = set()  # arms whose bus stopped answering
         self.torque: dict[str, bool] = {a.name: False for a in self.arms}
@@ -112,6 +183,19 @@ class RigWorker:
     def error(self, message: str, fix: str = "") -> None:
         self.send({"type": "error", "message": message, "fix": fix})
 
+    def _on_state(self, s: Session) -> None:
+        if self.run is not None and self.run.running and s.state is not State.MOVING:
+            self.run.running = False
+            self.run.ended = s.stop_reason or ("fault" if s.state is State.FAULT else "stopped")
+        self.send({"type": "state", **s.snapshot()})
+
+    def describe(self) -> dict[str, Any]:
+        """What this rig is, for the UI: sent once at start and replayed to every new window."""
+        return {"type": "rig", "mock": self.mock,
+                "arms": [{"name": a.name, "role": a.role} for a in self.arms],
+                "policies": [p.public() for p in self.policies.values()],
+                "cal_dir": str(self.cal_dir) if self.cal_dir else None}  # fmt: skip
+
     def _cmd_heartbeat(self, msg: dict[str, Any]) -> None:
         self.last_heartbeat = self.clock()
 
@@ -121,6 +205,9 @@ class RigWorker:
         self._identify()
 
     def _cmd_identify(self, msg: dict[str, Any]) -> None:
+        if self.cal is not None:
+            self.error("Finish or cancel the calibration first.")
+            return
         self._identify()
 
     def _cmd_confirm(self, msg: dict[str, Any]) -> None:
@@ -146,6 +233,9 @@ class RigWorker:
 
     def _cmd_start(self, msg: dict[str, Any]) -> None:
         activity = msg.get("activity", "teleop")
+        if activity == "policy":
+            self._start_policy(msg)
+            return
         if activity != "teleop":
             self.error(f"{activity} is not available yet")
             return
@@ -153,6 +243,147 @@ class RigWorker:
             self.error("teleop needs a leader and a follower", "connect a leader arm")
             return
         self.session.started(activity)
+
+    def _start_policy(self, msg: dict[str, Any]) -> None:
+        pid = msg.get("policy")
+        info = self.policies.get(pid) if isinstance(pid, str) else None
+        if info is None or info.factory is None or not info.available:
+            why = info.note if info else f"no policy named {msg.get('policy')!r}"
+            self.error(f"{info.name if info else 'That policy'} cannot run here", why)
+            return
+        limit, task = msg.get("limit_s", 30.0), msg.get("task", "")
+        lo, hi = POLICY_LIMIT_S
+        if not is_finite_number(limit) or not lo <= limit <= hi:
+            self.error(f"The time limit must be between {lo:.0f} and {hi:.0f} seconds.")
+            return
+        if not isinstance(task, str) or len(task) > 300:
+            self.error("The task must be text of at most 300 characters.")
+            return
+        if not self.followers:
+            self.error("A policy needs at least one follower arm.")
+            return
+        policy = info.factory(self.loop_hz)
+        self.session.started("policy")  # raises unless ARMED: after a stop, resume first
+        start = {f.name: f.read_positions() for f in self.followers}
+        policy.reset(start, task)
+        self.run = PolicyRun(info, policy, task, float(limit), t0=self.clock())
+
+    def _policy_goals(
+        self, now: float, pos: dict[str, dict[str, float]]
+    ) -> list[tuple[ArmBus, dict[str, float]]]:
+        """This tick's clipped goal per follower, or none once the time limit is reached."""
+        r = self.run
+        assert r is not None
+        r.episode_s = now - r.t0
+        if r.episode_s >= r.limit_s:
+            self.session.stopped("time limit")
+            self._freeze()
+            return []
+        if not r.queue:
+            # WHY inline: the mock policy takes microseconds. A real policy must not run here.
+            t = time.perf_counter()
+            state = {f.name: pos[f.name] for f in self.followers}
+            r.queue.extend(r.policy.infer(r.episode_s, state))
+            r.chunk_ms.append((time.perf_counter() - t) * 1e3)
+        r.action = r.queue.popleft()
+        r.step += 1
+        return [(f, self._clip(r.action[f.name], pos[f.name])) for f in self.followers]
+
+    # -- calibration: LeRobot so_follower.py:126-157, one step per command ------------------------
+    def _cmd_cal_start(self, msg: dict[str, Any]) -> None:
+        a = next((x for x in self.arms if x.name == msg.get("arm")), None)
+        if a is None:
+            self.error(f"There is no arm named {msg.get('arm')!r}.")
+            return
+        holding = [n for n, on in self.torque.items() if on]
+        if holding:
+            self.error(f"Turn torque off before calibrating: {', '.join(holding)} holds torque.",
+                       "Support the arm, then use Torque off.")  # fmt: skip
+            return
+        mine = next((x for x in self.identity if x["name"] == a.name), None)
+        if mine and mine["exact"] and mine["match"] != a.calibration_id:
+            self.error(f"{a.name} has {mine['match']}'s calibration: are their cables swapped?",
+                       f"Fix the cables first. Calibrating now would write {a.name}'s calibration "
+                       f"into {mine['match']}'s servos and hide the swap.")  # fmt: skip
+            return
+        self.session.calibration_started()  # raises unless IDENTIFIED or READY
+        a.set_torque(False)  # LeRobot disables torque first (so_follower.py:127)
+        self.cal = CalRun(a, old=a.read_calibration())
+
+    def _cal_at(self, step: str) -> CalRun | None:
+        if self.cal is None:
+            self.error("No calibration is running.", "Start one from the Calibrate page.")
+            return None
+        if self.cal.step != step:
+            self.error(f"Calibration is at the {self.cal.step} step, not {step}.")
+            return None
+        return self.cal
+
+    def _cmd_cal_middle(self, msg: dict[str, Any]) -> None:
+        c = self._cal_at("middle")
+        if c is None:
+            return
+        c.written = True  # before the write: a write that fails halfway still changed registers
+        c.homings = c.arm.set_half_turn_homings()
+        c.pos = c.arm.read_raw_positions()
+        c.mins = {j: v for j, v in c.pos.items() if j != FULL_TURN}
+        c.maxes = dict(c.mins)
+        c.step = "ranges"
+
+    def _cmd_cal_finish(self, msg: dict[str, Any]) -> None:
+        c = self._cal_at("ranges")
+        if c is None:
+            return
+        still = [j for j in c.mins if c.mins[j] == c.maxes[j]]
+        if still:  # LeRobot raises here (motors_bus.py:844-846); Studio lets the user carry on
+            self.error(f"These joints did not move: {', '.join(still)}.",
+                       "Move each one through its full range, then finish.")  # fmt: skip
+            return
+        c.new = {}
+        for j, old in c.old.items():
+            lo, hi = FULL_RANGE if j == FULL_TURN else (c.mins[j], c.maxes[j])
+            c.new[j] = JointCal(old.id, 0, c.homings[j], lo, hi)  # drive_mode 0, as LeRobot
+        c.step = "review"
+
+    def _cmd_cal_save(self, msg: dict[str, Any]) -> None:
+        c = self._cal_at("review")
+        if c is None or c.new is None:
+            return
+        c.arm.write_calibration(c.new)
+        self.calibrations[c.arm.calibration_id] = c.new
+        path = None
+        if self.cal_dir is not None:
+            path = self.cal_dir / f"{c.arm.calibration_id}.json"
+            try:
+                save_calibration(c.new, path)
+            except OSError as e:  # not a bus error: the registers are written
+                self.error(f"Wrote {c.arm.name}'s registers but could not save {path}: {e}",
+                           "Studio uses the new calibration until it restarts.")  # fmt: skip
+                path = None
+        self.cal = None
+        self.session.calibration_ended()
+        self.send({"type": "calibrated", "arm": c.arm.name, "path": str(path) if path else None})
+        self._identify()
+
+    def _cmd_cal_cancel(self, msg: dict[str, Any]) -> None:
+        if self.cal is None:
+            self.error("No calibration is running.")
+            return
+        self._cal_abort()
+        self.session.calibration_ended()
+        self._identify()
+
+    def _cal_abort(self) -> None:
+        """Drop the calibration in progress and write back the registers it changed."""
+        c, self.cal = self.cal, None
+        if c is None or not c.written:
+            return
+        try:
+            c.arm.write_calibration(c.old)
+        except BUS_ERRORS as e:
+            self.error(f"Could not restore {c.arm.name}'s calibration registers: {e}",
+                       "They no longer match its file. Calibrate it again once it "
+                       "answers.")  # fmt: skip
 
     def _cmd_stop(self, msg: dict[str, Any]) -> None:
         reason = msg.get("reason", "user")
@@ -190,13 +421,15 @@ class RigWorker:
         self._identify()
 
     def _cmd_disconnect(self, msg: dict[str, Any]) -> None:
+        self._cal_abort()
         self._release_all()
+        self.run = None
         self.session.disconnected()
 
     def _cmd_inject(self, msg: dict[str, Any]) -> None:
         """Mock rig only: inject a fault so the UI's error paths can be exercised."""
         target = next((a for a in self.arms if a.name == msg.get("arm")), None)
-        kinds = {"overload", "overheat", "voltage", "unplug", "replug", "clear", "swap"}
+        kinds = {"overload", "overheat", "voltage", "unplug", "replug", "clear", "swap", "hand"}
         if target is None or not hasattr(target, "inject"):
             self.error("fault injection works only on the mock rig")
             return
@@ -268,6 +501,7 @@ class RigWorker:
     def _fault(self, why: str) -> None:
         self.session.faulted(why)
         self._freeze()
+        self._cal_abort()
 
     def _clip(self, goal: dict[str, float], present: dict[str, float]) -> dict[str, float]:
         return {
@@ -298,6 +532,16 @@ class RigWorker:
                 for lead, fol in self.pairs:
                     current = fol
                     fol.write_goals(self._clip(pos[lead.name], pos[fol.name]))
+            elif self.session.may_move and self.session.activity == "policy" and self.run:
+                for fol, goal in self._policy_goals(now, pos):
+                    current = fol
+                    fol.write_goals(goal)
+            if self.cal is not None and self.cal.step == "ranges":
+                c = self.cal
+                current = c.arm
+                c.pos = c.arm.read_raw_positions()
+                for j in c.mins:
+                    c.mins[j], c.maxes[j] = min(c.mins[j], c.pos[j]), max(c.maxes[j], c.pos[j])
             if self._n % self.health_every == 0:
                 for a in self.arms:
                     if a.name not in self.dead:
@@ -339,6 +583,8 @@ class RigWorker:
             }  # fmt: skip
         self.send({
             "type": "telemetry", "t": self.clock(), "arms": arms,
+            "calibration": self.cal.view() if self.cal else None,
+            "policy": self.run.view() if self.run else None,
             "loop": {"hz": round((len(self._ticks) - 1) / span, 1) if span else 0.0,
                      "p50_ms": round(costs[len(costs) // 2], 2) if costs else 0.0,
                      "p99_ms": round(costs[int(len(costs) * 0.99)], 2) if costs else 0.0},
@@ -430,7 +676,12 @@ def run_worker(conn: Any, spec: dict[str, Any]) -> None:
         return
     hz = float(spec.get("hz", 30))
     outbox = Outbox(send)
-    w = RigWorker(rig, outbox.put, loop_hz=hz)
+    # WHY a separate directory for the mock: its calibrations must never land in LeRobot's own
+    # calibration directory, where a real arm's file would be overwritten.
+    data = spec.get("data_dir")
+    mock = spec.get("kind", "mock") == "mock"
+    cal_dir = Path(data) / "mock-calibration" if data and mock else None
+    w = RigWorker(rig, outbox.put, loop_hz=hz, cal_dir=cal_dir)
     inbox: queue.SimpleQueue[dict[str, Any]] = queue.SimpleQueue()
     done = threading.Event()
 
@@ -460,6 +711,7 @@ def run_worker(conn: Any, spec: dict[str, Any]) -> None:
     for cam in rig.cameras:
         threading.Thread(target=camera, args=(cam, float(spec.get("preview_fps", 15))),
                          daemon=True).start()  # fmt: skip
+    outbox.put(w.describe())
     outbox.put({"type": "state", **w.session.snapshot()})
     period, nxt = 1.0 / hz, time.monotonic()
     try:
@@ -484,5 +736,6 @@ def run_worker(conn: Any, spec: dict[str, Any]) -> None:
         done.set()
         w._freeze()
         w._release_all()
+        w._cal_abort()
         for cam in rig.cameras:
             cam.close()

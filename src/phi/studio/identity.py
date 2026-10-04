@@ -16,6 +16,7 @@ Pure data in, data out: no serial I/O and no LeRobot import, so CI can test it.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -43,6 +44,15 @@ def load_calibration(src: Path | str | dict[str, Any]) -> Calibration:
     """A LeRobot calibration JSON (path or parsed dict) as {joint: JointCal}."""
     raw = src if isinstance(src, dict) else json.loads(Path(src).read_text())
     return {joint: JointCal(**{f: int(v[f]) for f in JointCal._fields}) for joint, v in raw.items()}
+
+
+def save_calibration(cal: Calibration, path: Path) -> None:
+    """Write `cal` as a LeRobot calibration JSON, the shape `load_calibration` reads. Atomic: a
+    crash mid-write leaves the previous file whole."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({j: c._asdict() for j, c in cal.items()}, indent=4))
+    os.replace(tmp, path)
 
 
 @dataclass(frozen=True)

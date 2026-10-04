@@ -81,3 +81,36 @@ def test_camera_unplug_raises() -> None:
     cam.inject("unplug")
     with pytest.raises(ConnectionError):
         cam.read_latest()
+
+
+def test_half_turn_homing_makes_the_present_position_read_2047() -> None:
+    # LeRobot motors_bus.py:774-796: reset, read, write homing = actual - 2047.
+    arm = MockArm("f", "follower", clock=FakeClock())
+    homings = arm.set_half_turn_homings()
+    assert set(homings) == set(JOINTS)
+    assert arm.read_raw_positions() == {j: 2047 for j in JOINTS}
+    regs = arm.read_calibration()
+    assert all(regs[j].homing_offset == homings[j] for j in JOINTS)
+    assert all((regs[j].range_min, regs[j].range_max) == (0, 4095) for j in JOINTS)  # reset
+
+
+def test_a_hand_sweeps_a_limp_follower_through_its_range() -> None:
+    clock = FakeClock()
+    arm = MockArm("f", "follower", clock=clock)
+    arm.set_half_turn_homings()
+    seen = {j: set() for j in JOINTS}
+    arm.inject("hand")
+    for _ in range(40):
+        clock.advance(0.1)
+        for j, v in arm.read_raw_positions().items():
+            seen[j].add(v)
+    assert all(max(s) - min(s) > 500 for s in seen.values())  # ticks: well over 40 degrees
+
+
+def test_written_calibration_is_what_the_registers_read() -> None:
+    arm = MockArm("f", "follower", clock=FakeClock(), seed=3)
+    other = MockArm("g", "follower", clock=FakeClock(), seed=4).read_calibration()
+    arm.write_calibration(other)
+    assert fingerprint_distance(arm.read_calibration(), other).exact
+    arm.inject("replug")
+    assert fingerprint_distance(arm.read_calibration(), other).exact  # it is now the arm's own

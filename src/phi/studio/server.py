@@ -7,6 +7,9 @@ Security, because this socket can move motors:
   * the WebSocket needs the per-launch token, an allowed Origin, and an allowed Host (DNS rebinding)
   * no CORS headers, so no other site's page can read responses
 
+Evals live here, not in the worker: judging an episode moves nothing, and the record must survive a
+worker crash. Every judgement is on disk before the windows hear about it.
+
 Control: one window holds control; any window may Stop. Control changing hands stops the rig:
 closing or reloading the controlling window, or another window taking control, sends Stop at
 once. The worker's heartbeat timeout is the backstop for a window that hangs without closing.
@@ -27,10 +30,15 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
+from phi.studio.evals import EvalError, EvalStore
+
 STATIC = Path(__file__).parent / "static"
 COMMANDS = {"heartbeat", "connect", "identify", "confirm", "arm", "start", "stop", "resume",
-            "release", "clear", "disconnect", "inject"}  # fmt: skip
+            "release", "clear", "disconnect", "inject",
+            "cal_start", "cal_middle", "cal_finish", "cal_save", "cal_cancel"}  # fmt: skip
+EVAL_COMMANDS = {"eval_begin", "eval_mark", "eval_undo", "eval_end"}  # answered by the server
 ANYONE = {"stop", "take_control"}  # allowed from a window without control
+REPLAYED = ("rig", "state", "identity", "worker_exit")  # newest of each, sent to a new window
 
 
 def frame_packet(msg: dict[str, Any]) -> bytes:
@@ -76,8 +84,17 @@ class Client:
 
 
 class Studio:
-    def __init__(self, spec: dict[str, Any], port: int, token: str | None = None) -> None:
-        self.spec, self.port = spec, port
+    def __init__(
+        self,
+        spec: dict[str, Any],
+        port: int,
+        token: str | None = None,
+        data_dir: Path | str | None = None,
+    ) -> None:
+        self.spec = {**spec, "data_dir": str(data_dir)} if data_dir else dict(spec)
+        self.port = port
+        self.data_dir = Path(data_dir) if data_dir else None
+        self.evals = EvalStore(self.data_dir) if self.data_dir else None
         self.token = token or secrets.token_urlsafe(24)
         self.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
         self.allowed_origins = {f"http://{h}" for h in self.allowed_hosts}
@@ -116,7 +133,7 @@ class Studio:
             self._dispatch(msg)
 
     def _dispatch(self, msg: dict[str, Any]) -> None:
-        if msg.get("type") in ("state", "identity", "worker_exit"):
+        if msg.get("type") in REPLAYED:
             self.last[msg["type"]] = msg
         if self.loop is not None:
             self.loop.call_soon_threadsafe(self._fanout, msg)
@@ -196,9 +213,11 @@ class Studio:
         sender = asyncio.create_task(client.run())
         client.push({"type": "hello", "control": self.controller is client,
                      "mock": self.spec.get("kind", "mock") == "mock"})  # fmt: skip
-        for kind in ("state", "identity", "worker_exit"):
+        for kind in REPLAYED:
             if kind in self.last:
                 client.push(self.last[kind])
+        if self.evals is not None:
+            client.push(self._eval_msg())
         try:
             async for m in ws:
                 if m.type == WSMsgType.TEXT:
@@ -231,7 +250,7 @@ class Studio:
             self.controller = client
             client.push({"type": "control", "control": True})
             return
-        if cmd not in COMMANDS:
+        if cmd not in COMMANDS and cmd not in EVAL_COMMANDS:
             client.push({"type": "error", "message": f"unknown command {cmd!r}", "fix": ""})
             return
         if client is not self.controller and cmd not in ANYONE:
@@ -239,7 +258,41 @@ class Studio:
                 client.push({"type": "error", "message": "Another window has control.",
                              "fix": "Take control to operate the rig here."})  # fmt: skip
             return
+        if cmd in EVAL_COMMANDS:
+            self._eval(client, cmd, msg)
+            return
         self.to_worker({k: v for k, v in msg.items() if isinstance(k, str)})
+
+    # -- evals ----------------------------------------------------------------------------------
+    def _eval_msg(self) -> dict[str, Any]:
+        assert self.evals is not None
+        return {"type": "eval", "current": self.evals.current, "past": self.evals.list(20),
+                "dir": str(self.evals.dir)}  # fmt: skip
+
+    def _eval(self, client: Client, cmd: str, msg: dict[str, Any]) -> None:
+        if self.evals is None:
+            client.push({"type": "error", "message": "Evals need a data directory.",
+                         "fix": "Start Studio with --data-dir."})  # fmt: skip
+            return
+        e = self.evals
+        try:
+            if cmd == "eval_begin":
+                e.begin(msg.get("policy"), msg.get("task", ""), msg.get("planned"),
+                        msg.get("limit_s"))  # fmt: skip
+            elif cmd == "eval_mark":
+                e.mark(msg.get("outcome"), msg.get("note", ""), msg.get("duration_s"))
+            elif cmd == "eval_undo":
+                e.undo()
+            else:
+                e.end()
+        except EvalError as err:
+            client.push({"type": "error", "message": str(err), "fix": ""})
+            return
+        except OSError as err:  # the judgement is not saved, so do not show it as saved
+            client.push({"type": "error", "message": f"Could not save the eval: {err}",
+                         "fix": f"Check that {e.dir} is writable."})  # fmt: skip
+            return
+        self._fanout(self._eval_msg())
 
 
 class PortInUse(RuntimeError):
@@ -260,12 +313,17 @@ def port_free(port: int) -> bool:
     return True
 
 
-def serve(spec: dict[str, Any], port: int = 8765, open_browser: bool = True) -> None:
+def serve(
+    spec: dict[str, Any],
+    port: int = 8765,
+    open_browser: bool = True,
+    data_dir: Path | None = None,
+) -> None:
     if not port_free(port):  # before printing a URL or opening a browser at the wrong server
         raise PortInUse(port)
     # WHY an env override: a fixed token lets a dev preview reload with the same URL.
     # The default is a fresh random token per launch.
-    studio = Studio(spec, port, token=os.environ.get("PHI_STUDIO_TOKEN") or None)
+    studio = Studio(spec, port, token=os.environ.get("PHI_STUDIO_TOKEN") or None, data_dir=data_dir)
     url = f"http://127.0.0.1:{port}/#token={studio.token}"
     print(f"Phi Studio on {url}\nCtrl+C stops Studio and releases torque.", flush=True)
     if open_browser:

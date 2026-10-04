@@ -115,3 +115,29 @@ def test_one_notification_per_transition_and_no_change_on_illegal() -> None:
     with pytest.raises(IllegalTransition):
         s.resumed()
     assert s.state is State.MOVING and s.activity == "teleop" and len(seen) == 1
+
+
+def test_calibration_starts_before_torque_and_ends_in_a_fresh_identity_check() -> None:
+    for prep in (lambda s: None, lambda s: s.confirmed()):  # IDENTIFIED, READY
+        s = Session()
+        s.connected()
+        s.identified()
+        prep(s)
+        s.calibration_started()
+        assert s.state is State.CALIBRATING and s.activity == "calibration"
+        s.calibration_ended()
+        assert s.state is State.CONNECTED and s.activity is None
+    s = ready()
+    s.armed()
+    with pytest.raises(IllegalTransition):
+        s.calibration_started()  # torque may be on
+
+
+def test_nothing_can_enable_torque_or_start_while_calibrating() -> None:
+    s = ready()
+    s.calibration_started()
+    for event in (s.armed, s.confirmed, lambda: s.started("teleop"), s.resumed):
+        with pytest.raises(IllegalTransition):
+            event()
+    assert s.heartbeat_lost() is False and s.state is State.CALIBRATING
+    assert not s.torque_allowed

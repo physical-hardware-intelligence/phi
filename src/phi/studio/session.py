@@ -5,6 +5,8 @@
                                                 |        |  v      v stop / heartbeat loss
                                              release  resume STOPPED
     any state -> FAULT -> (clear) -> CONNECTED, so a fault always forces a fresh identity check.
+    IDENTIFIED / READY -> CALIBRATING -> CONNECTED: torque is off throughout, and the new
+    registers get the same fresh identity check.
 
 WHY a hand-written table rather than flags: every torque or goal write in the worker asks this
 object first, so
@@ -29,6 +31,7 @@ class State(Enum):
     MOVING = ("Moving", "ok", "Stop with Esc")
     STOPPED = ("Stopped", "warn", "Resume, or turn torque off")
     FAULT = ("Fault", "danger", "Read the fault, fix it, then clear")
+    CALIBRATING = ("Calibrating", "info", "Follow the calibration steps")
 
     @property
     def label(self) -> str:
@@ -55,10 +58,15 @@ _FROM: dict[str, tuple[State, ...]] = {
     "resumed": (S.STOPPED,),
     "released": (S.ARMED, S.STOPPED),
     "cleared": (S.FAULT,),
+    # WHY only these two: Studio has not enabled torque in either. The worker also checks each
+    # servo's own torque flag, since an earlier session may have left it on.
+    "calibration_started": (S.IDENTIFIED, S.READY),
+    "calibration_ended": (S.CALIBRATING,),
 }
 _WHY = {
     "armed": "confirm each arm's role and calibration before torque is enabled",
     "started": "enable torque first, and after a stop resume explicitly",
+    "calibration_started": "turn torque off first",
 }
 
 
@@ -109,6 +117,12 @@ class Session:
 
     def released(self) -> None:
         self._go("released", S.READY)
+
+    def calibration_started(self) -> None:
+        self._go("calibration_started", S.CALIBRATING, activity="calibration", stop_reason=None)
+
+    def calibration_ended(self) -> None:
+        self._go("calibration_ended", S.CONNECTED, activity=None)
 
     def heartbeat_lost(self) -> bool:
         """Stop if anything could be moving. Returns whether it stopped."""

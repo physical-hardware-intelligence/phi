@@ -6,7 +6,10 @@ Behaviour, so tests and members without an arm see what a real rig would do:
     keeps its value with torque off, so enabling torque drives to whatever goal it holds. That is
     the worst case; whether an STS3215 does it is unverified (bench test 21), so the worker must
     write goal = present before enabling
-  * a leader with torque off follows a slow scripted "hand"
+  * a leader with torque off follows a slow scripted "hand"; a follower does too after
+    inject("hand"), so calibration has a range to record
+  * raw encoder ticks follow LeRobot's Feetech rule, Present_Position = Actual_Position -
+    Homing_Offset (feetech.py:278-289), so the calibration steps run as they would on a servo
   * calibration registers are fixed per arm, and differ between arms, like real calibrations
   * faults can be injected: overload / overheat / voltage on one joint, unplug on a whole arm or
     camera
@@ -21,10 +24,12 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from phi.studio.identity import Calibration, JointCal
+from phi.studio.identity import TICKS_PER_REV, Calibration, JointCal
 from phi.studio.rig import JOINTS, JointHealth
 
 MAX_SPEED_DEG_S = 180.0
+HALF_TURN = (TICKS_PER_REV - 1) // 2  # 2047, LeRobot's int(max_res / 2) (feetech.py:286-287)
+TICKS_PER_DEG = TICKS_PER_REV / 360.0
 _HOME = {
     "shoulder_pan": 0.0,
     "shoulder_lift": -90.0,
@@ -75,12 +80,16 @@ class MockArm:
     faults: dict[str, int] = field(default_factory=dict)
     unplugged: bool = False
     scripted: bool = True  # leader follows the scripted hand
+    hand: bool = False  # a limp follower follows a wider scripted hand (calibration sweeps)
     calibration_id: str = ""  # the calibration file this arm is registered with; default its name
 
     def __post_init__(self) -> None:
         self.calibration_id = self.calibration_id or self.name
         self._own_cal = _calibration(self.seed)
         self._cal = self._own_cal  # what the port reaches; swap_cables changes it
+        rng = np.random.default_rng(1000 + self.seed)
+        # Encoder ticks at the home pose: where each servo's magnet happens to sit.
+        self._enc0 = {j: int(rng.integers(1300, 2800)) for j in JOINTS}
         self._t = self.clock()  # type: ignore[operator]
         self._t0 = self._t
 
@@ -94,6 +103,8 @@ class MockArm:
             self._cal = self._own_cal  # replugged into the right port
         elif kind == "clear":
             self.faults.clear()
+        elif kind == "hand":
+            self.hand = not self.hand
         else:
             assert joint in JOINTS, f"joint required for {kind}"
             self.faults[joint] = self.faults.get(joint, 0) | _FAULT_BIT[kind]
@@ -116,6 +127,11 @@ class MockArm:
                 self.pos[j] = _HOME[j] + amp * math.sin(2 * math.pi * 0.25 * s + i)
             return
         if not self.torque:
+            if self.hand:
+                s = now - self._t0
+                for i, j in enumerate(JOINTS):
+                    amp = 70.0 if j != "gripper" else 45.0
+                    self.pos[j] = _HOME[j] + amp * math.sin(2 * math.pi * 0.3 * s + i)
             return
         step = MAX_SPEED_DEG_S * dt
         for j in JOINTS:
@@ -132,6 +148,32 @@ class MockArm:
         self._check()
         self._step()
         return dict(self.pos)
+
+    def _actual(self) -> dict[str, int]:
+        """Encoder ticks before homing. The gripper's 0-100 is treated as degrees: a mock."""
+        return {j: self._enc0[j] + round(self.pos[j] * TICKS_PER_DEG) for j in JOINTS}
+
+    def read_raw_positions(self) -> dict[str, int]:
+        self._check()
+        self._step()
+        return {j: v - self._cal[j].homing_offset for j, v in self._actual().items()}
+
+    def set_half_turn_homings(self) -> dict[str, int]:
+        """LeRobot motors_bus.py:788-796: reset (homing 0, limits 0..4095), read, write homing."""
+        self._check()
+        self._step()
+        homings = {j: v - HALF_TURN for j, v in self._actual().items()}
+        self._cal = self._own_cal = {
+            j: JointCal(c.id, c.drive_mode, homings[j], 0, TICKS_PER_REV - 1)
+            for j, c in self._cal.items()
+        }  # the servo keeps these: a replug does not undo them
+        return homings
+
+    def write_calibration(self, cal: Calibration) -> None:
+        """Writes the registers of the arm this port reaches. The mock assumes that is this arm:
+        Studio refuses to calibrate an arm on a swapped cable."""
+        self._check()
+        self._cal = self._own_cal = dict(cal)
 
     def write_goals(self, goals: dict[str, float]) -> None:
         self._check()
