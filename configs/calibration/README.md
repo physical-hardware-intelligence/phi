@@ -14,9 +14,10 @@ subfolders.
 `phi_follower.json` and `phi_leader.json` hold the same numbers as the two left files. They use the
 single-arm names that every trained checkpoint, script and doc expects, so keep them.
 
-These are four different arms, checked on 2026-10-05: each joint's zero differs from the other arm's
-by 12 to 168 degrees. The right follower's rest pose, read through its file, is a physically
-consistent folded pose in simulation.
+Checked on 2026-10-08 against the arms themselves. Each arm, held in the middle pose, reads within
+23 degrees of zero through its own file and 84 to 161 degrees off through the other side's. Every
+arm's servos hold exactly its own file. The left follower's file also replays 120 recorded episodes
+with the gripper at the table.
 
 ## Install on a machine
 
@@ -95,11 +96,8 @@ lerobot-calibrate --teleop.type=so101_leader  --teleop.port=$RIGHT_LEADER_PORT  
   and asks for ENTER, stop.** ENTER writes that file into the arm's servos. If the port or the id
   names the wrong arm, that arm now holds another arm's calibration: its angles are off by tens of
   degrees, and teleop drives joints into their stops. On 2026-10-05 the right follower held the left
-  follower's calibration, and the left leader held the right leader's. Check the ports and ids
-  against the tables above first.
+  follower's calibration. Until 2026-10-08 the two leader files were named after the wrong sides, so a
+  single-arm run on the left pair offered the right leader's file to the left leader. Check the ports
+  and ids against the tables above first.
 - **Ports follow the USB board, not the arm.** If a board moves to another arm, update both tables
   and `configs/ports.local.sh.example`.
-
-Note: the right follower's gripper still holds the auto-calibration from 2026-10-05, so its gripper
-values differ from its file. On that arm's own port and id, ENTER at the mismatch prompt puts the
-file's gripper values back, and that is safe.
