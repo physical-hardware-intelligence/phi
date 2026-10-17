@@ -1,0 +1,18 @@
+# Our rig for scripts/lehome/record_real_dagger_mac.py (Ilia's runner, Mac port).
+# Copy to real_robot_mac.local.yaml (git-ignored) and fill in YOUR values:
+#   ports    -> lerobot-find-port (or configs/ports.local.sh)
+#   cameras  -> lerobot-find-cameras opencv   (indices are per-Mac and can change on replug)
+# Camera keys must stay top / left_wrist / right_wrist: the runner routes them to the
+# organizer's names right_front / left_wrist / right_wrist, which the model expects.
+arms:
+  left:
+    port:        /dev/tty.usbmodem<left-follower>
+    leader_port: /dev/tty.usbmodem<left-leader>
+  right:
+    port:        /dev/tty.usbmodem<right-follower>
+    leader_port: /dev/tty.usbmodem<right-leader>
+
+cameras:
+  top:          {backend: opencv, index_or_path: <index>, width: 1280, height: 720, fps: 30}   # 16:9, like the organizer's
+  left_wrist:   {backend: opencv, index_or_path: <index>, width: 640, height: 480, fps: 30, fourcc: MJPG}
+  right_wrist:  {backend: opencv, index_or_path: <index>, width: 640, height: 480, fps: 30, fourcc: MJPG}
