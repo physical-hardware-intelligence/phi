@@ -468,7 +468,7 @@ Core, A0–A3 plus P1–P3: about 3 hours of arm time. Off-distribution: +30 min
 
 ## 9. What this gives the laundry goal
 
-The laundry goal follows [Learning to Fold](https://arxiv.org/abs/2606.27163) (Larchenko; RECAP + AWR, 1st of 62 at LeHome 2026). The two methods differ at the root: **EXPO-FT changes the action** (edit, then select) at every decision, while **RECAP + AWR changes the data** (which frames the model imitates, and labelled how).
+The laundry goal follows [Learning to Fold](https://arxiv.org/abs/2606.27163) (Larchenko; RECAP + AWR, 1st of 62 at LeHome 2026). The reproduction plan lives in [Learning to Fold on our SO-101s](2026-09-27_learning-to-fold-so101.md). The two methods differ at the root: **EXPO-FT changes the action** (edit, then select) at every decision, while **RECAP + AWR changes the data** (which frames the model imitates, and labelled how).
 
 | carries over | why |
 |---|---|
