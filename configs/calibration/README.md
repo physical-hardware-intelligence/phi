@@ -19,6 +19,10 @@ Checked on 2026-10-08 against the arms themselves. Each arm, held in the middle 
 arm's servos hold exactly its own file. The left follower's file also replays 120 recorded episodes
 with the gripper at the table.
 
+The right follower was recalibrated on 2026-10-17, after its shoulder-lift motor (ID 2) was replaced.
+Its wrist-roll zero was then set to match the right leader: with the two wrists turned the same
+way, both read the same angle. Teleoperation of the right pair was checked afterwards.
+
 ## Install on a machine
 
 ```bash
